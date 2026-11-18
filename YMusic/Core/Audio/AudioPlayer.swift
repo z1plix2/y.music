@@ -26,6 +26,13 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var recents: [Track] = []
 
+    /// Конец сна-таймера; `nil`, если таймер не запущен.
+    @Published private(set) var sleepTimerEndsAt: Date?
+
+    /// Профиль известен: `configure(userID:)` уже прошёл. Нужно deep link —
+    /// до этого момента восстановление очереди перезаписало бы запуск.
+    @Published private(set) var isConfigured = false
+
     /// `AVPlayer.volume`, а не системная громкость: iOS не даёт менять
     /// системную без `MPVolumeView`. Хранится, чтобы не терялась между запусками.
     @Published var volume: Float = 1.0 {
@@ -64,6 +71,9 @@ final class AudioPlayer: ObservableObject {
     private var wasPlayingBeforeInterruption = false
     private var tickCount = 0
     private var fadeTask: Task<Void, Never>?
+    private var sleepTimerTask: Task<Void, Never>?
+    /// Предыдущая позиция из тика: по разнице считаем реально прослушанное.
+    private var lastObservedTime: Double = 0
 
     init(
         streamProvider: any AudioStreamProviding = YandexAudioStreamProvider.shared,
@@ -93,7 +103,9 @@ final class AudioPlayer: ObservableObject {
         guard self.userID != userID else { return }
 
         self.userID = userID
+        isConfigured = true
         recents = stateStore.loadRecents(userID: userID).map(\.track)
+        ListeningStatsStore.shared.configure(userID: userID)
         restoreQueue(userID: userID)
     }
 
@@ -188,6 +200,63 @@ final class AudioPlayer: ObservableObject {
         }
     }
 
+    // MARK: - Сон-таймер
+
+    /// Засыпание: за 30 секунд до конца громкость плавно уходит в ноль,
+    /// затем пауза. Громкость возвращается, чтобы утренний запуск не был
+    /// беззвучным. `minutes` меньше половины минуты просто не даёт
+    /// полноценного затухания — тогда пауза наступает сразу.
+    func startSleepTimer(minutes: Int) {
+        cancelSleepTimer()
+        guard minutes > 0 else { return }
+
+        let endsAt = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        sleepTimerEndsAt = endsAt
+        let restoreVolume = volume
+
+        sleepTimerTask = Task { [weak self] in
+            guard let self else { return }
+
+            let fadeSeconds: TimeInterval = 30
+            let delay = max(TimeInterval(minutes * 60) - fadeSeconds, 0)
+
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+
+            let steps = 30
+            for step in 1...steps {
+                guard !Task.isCancelled else { return }
+                self.player.volume = restoreVolume * Float(steps - step) / Float(steps)
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    return
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+            self.player.pause()
+            self.status = .paused
+            self.player.volume = restoreVolume
+            self.sleepTimerEndsAt = nil
+            self.sleepTimerTask = nil
+            self.persist()
+            self.syncNowPlaying()
+        }
+    }
+
+    func cancelSleepTimer() {
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        if sleepTimerEndsAt != nil {
+            player.volume = volume
+        }
+        sleepTimerEndsAt = nil
+    }
+
     func togglePlayPause() {
         switch status {
         case .playing:
@@ -263,6 +332,9 @@ final class AudioPlayer: ObservableObject {
         loadTask = nil
         fadeTask?.cancel()
         fadeTask = nil
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerEndsAt = nil
 
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -299,7 +371,9 @@ final class AudioPlayer: ObservableObject {
             stateStore.clear(userID: userID)
         }
         userID = nil
+        isConfigured = false
         recents = []
+        ListeningStatsStore.shared.detach()
     }
 
     // MARK: - Восстановление
@@ -352,6 +426,7 @@ final class AudioPlayer: ObservableObject {
         status = .preparing
         isBuffering = true
         currentTime = 0
+        lastObservedTime = 0
         duration = track.duration
         notice = nil
         if pendingSeek == nil { persist() }
@@ -390,6 +465,7 @@ final class AudioPlayer: ObservableObject {
             }
 
             recordRecent(track)
+            ListeningStatsStore.shared.recordStart(track)
             persist()
             syncNowPlaying()
         } catch is CancellationError {
@@ -410,6 +486,10 @@ final class AudioPlayer: ObservableObject {
     }
 
     private func handleTrackEnded() {
+        if let track = queue.currentTrack {
+            ListeningStatsStore.shared.recordFinish(track)
+        }
+
         if queue.repeatMode == .one {
             seek(to: 0)
             player.play()
@@ -475,6 +555,15 @@ final class AudioPlayer: ObservableObject {
         let seconds = time.seconds
         guard seconds.isFinite, seconds >= 0 else { return }
         currentTime = seconds
+
+        // Стрик и часы растут только по реально проигранному времени:
+        // разница между тиками, а не фиксированные 0.5 с (после seek она
+        // бывает большой, её отбрасываем).
+        let delta = seconds - lastObservedTime
+        if delta > 0, delta <= 2 {
+            ListeningStatsStore.shared.addListeningTime(delta)
+        }
+        lastObservedTime = seconds
 
         if duration <= 0,
            let itemDuration = player.currentItem?.duration,

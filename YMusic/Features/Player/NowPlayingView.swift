@@ -10,6 +10,13 @@ struct NowPlayingView: View {
     @Environment(\.contentTone) private var tone
 
     @State private var scrubValue: Double?
+    @StateObject private var shazam = ShazamRecognizer()
+    @State private var isShazamPresented = false
+    @State private var shareImage: ShareImage?
+    @State private var isPreparingShare = false
+    /// Плеер глушим на время распознавания: микрофон не должен слышать
+    /// наш же трек. Возвращаем только если пользователь не включил другой.
+    @State private var resumeAfterShazam = false
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -24,6 +31,24 @@ struct NowPlayingView: View {
             fallback: .brand
         ) {
             content
+        }
+        .overlay(alignment: .bottom) {
+            if isShazamPresented {
+                ShazamSheet(recognizer: shazam) {
+                    isShazamPresented = false
+                    shazam.reset()
+
+                    if resumeAfterShazam, !player.isPlaying {
+                        player.togglePlayPause()
+                    }
+                    resumeAfterShazam = false
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: isShazamPresented)
+        .sheet(item: $shareImage) { item in
+            ActivityView(items: [item.image])
         }
     }
 
@@ -53,8 +78,12 @@ struct NowPlayingView: View {
 
     private var topBar: some View {
         HStack {
-            GlassIconButton("chevron.down", label: "Закрыть") {
-                dismiss()
+            HStack(spacing: 8) {
+                GlassIconButton("chevron.down", label: "Закрыть") {
+                    dismiss()
+                }
+
+                sleepMenu
             }
 
             Spacer()
@@ -65,10 +94,115 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            Color.clear.frame(width: 40, height: 40)
+            HStack(spacing: 8) {
+                shareButton
+
+                GlassIconButton("mic", label: "Распознать трек") {
+                    Haptics.light()
+                    resumeAfterShazam = player.isPlaying
+                    if player.isPlaying {
+                        player.togglePlayPause()
+                    }
+                    isShazamPresented = true
+                    Task { await shazam.start() }
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// Сон-таймер: меню в верхней панели, на иконке — остаток минут.
+    private var sleepMenu: some View {
+        Menu {
+            ForEach([5, 15, 30, 60], id: \.self) { minutes in
+                Button("\(minutes) минут") {
+                    Haptics.selection()
+                    player.startSleepTimer(minutes: minutes)
+                }
+            }
+
+            if player.sleepTimerEndsAt != nil {
+                Button("Выключить таймер", role: .destructive) {
+                    player.cancelSleepTimer()
+                }
+            }
+        } label: {
+            TimelineView(.periodic(from: Date(), by: 20)) { _ in
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: player.sleepTimerEndsAt == nil ? "moon" : "moon.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(player.sleepTimerEndsAt == nil ? tone.secondary : tone.primary)
+                        .frame(width: 40, height: 40)
+                        .background { Circle().fill(Color.white.opacity(0.06)) }
+                        .overlay {
+                            Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        }
+
+                    if let minutes = sleepRemainingMinutes {
+                        Text("\(minutes)")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(tone.primary)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background { Capsule().fill(Color.black.opacity(0.6)) }
+                            .offset(x: 4, y: -4)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel(
+            sleepRemainingMinutes.map { "Сон-таймер: \($0) минут" } ?? "Сон-таймер"
+        )
+    }
+
+    private var sleepRemainingMinutes: Int? {
+        guard let endsAt = player.sleepTimerEndsAt else { return nil }
+        let remaining = endsAt.timeIntervalSinceNow
+        guard remaining > 0 else { return 0 }
+        return Int(ceil(remaining / 60))
+    }
+
+    /// Открытка рендерится в фоне: загрузка обложки и палитры может занять
+    /// кадр-другой, поэтому на кнопке виден прогресс, а не «залипание».
+    @ViewBuilder
+    private var shareButton: some View {
+        if let track {
+            Button {
+                Haptics.light()
+                prepareShare(track)
+            } label: {
+                ZStack {
+                    if isPreparingShare {
+                        ProgressView()
+                            .tint(tone.primary)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(tone.primary)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .background { Circle().fill(Color.white.opacity(0.08)) }
+                .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                }
+            }
+            .buttonStyle(PressableStyle(scale: 0.9))
+            .disabled(isPreparingShare)
+            .accessibilityLabel("Поделиться треком")
+        }
+    }
+
+    private func prepareShare(_ track: Track) {
+        guard !isPreparingShare else { return }
+        isPreparingShare = true
+
+        Task { @MainActor in
+            let image = await ShareCardRenderer.image(for: track)
+            isPreparingShare = false
+            shareImage = ShareImage(image: image)
+        }
     }
 
     // MARK: - Обложка и подписи
