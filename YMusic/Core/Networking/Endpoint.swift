@@ -68,6 +68,18 @@ extension Endpoint {
         return Endpoint(path: path, method: method, query: query, body: data)
     }
 
+    /// JSON-тело с вложенными объектами: сессии ротора принимают
+    /// `{"seeds": [...]}` и `{"event": {...}}`, а не плоские строки.
+    static func jsonObject(
+        _ path: String,
+        method: HTTPMethod = .post,
+        body: [String: Any],
+        headers: [String: String] = [:]
+    ) -> Endpoint {
+        let data = try? JSONSerialization.data(withJSONObject: body, options: [])
+        return Endpoint(path: path, method: method, body: data, headers: headers)
+    }
+
     /// Лайки Яндекс принимает именно как `application/x-www-form-urlencoded`
     /// (`track-ids=123:456`), а не JSON-телом.
     static func form(

@@ -5,6 +5,7 @@ import SwiftUI
 struct NowPlayingView: View {
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var likes: LikeStore
+    @EnvironmentObject private var waveSession: WaveSessionController
     @Environment(\.dismiss) private var dismiss
     @Environment(\.contentTone) private var tone
 
@@ -33,6 +34,8 @@ struct NowPlayingView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 22) {
                     artwork
+                    WaveVisualizer(isPlaying: player.isPlaying)
+                        .frame(maxWidth: 320)
                     titles
                     progress
                     controls
@@ -273,17 +276,48 @@ struct NowPlayingView: View {
     private var actions: some View {
         if let track {
             HStack(spacing: 22) {
+                dislikeButton(track)
+
                 LikeButton(
                     isLiked: likes.isLiked(track.id),
                     isPending: likes.isPending(track.id),
                     size: 44
                 ) {
-                    Task { _ = await likes.toggle(track) }
+                    Task {
+                        let liked = await likes.toggle(track)
+                        if liked {
+                            // Лайк уходит и в сессию волны: ротор учитывает
+                            // его в подборе следующих треков.
+                            waveSession.like(track)
+                        }
+                    }
                 }
                 .accessibilityLabel(likes.isLiked(track.id) ? "Убрать из «Мне нравится»" : "Добавить в «Мне нравится»")
             }
             .frame(maxWidth: .infinity)
         }
+    }
+
+    /// Дизлайк: просим ротор больше не предлагать похожее и переходим
+    /// к следующему треку с плавным затуханием.
+    private func dislikeButton(_ track: Track) -> some View {
+        Button {
+            Haptics.light()
+            waveSession.dislike(track)
+            player.fadeOutAndNext()
+        } label: {
+            Image(systemName: "hand.thumbsdown")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(tone.secondary)
+                .frame(width: 44, height: 44)
+                .background { Circle().fill(Color.white.opacity(0.06)) }
+                .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                }
+        }
+        .buttonStyle(PressableStyle(scale: 0.9))
+        .accessibilityLabel("Не нравится")
+        .accessibilityHint("Пропустить трек и подобрать другой")
     }
 
     // MARK: - Статус

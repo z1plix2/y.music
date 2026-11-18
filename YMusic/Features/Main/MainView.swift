@@ -11,6 +11,7 @@ struct MainView: View {
 
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var player: AudioPlayer
+    @EnvironmentObject private var waveSession: WaveSessionController
 
     @StateObject private var catalog: CatalogViewModel
     @StateObject private var likes: LikeStore
@@ -58,6 +59,7 @@ struct MainView: View {
             destination(for: route)
                 .environmentObject(player)
                 .environmentObject(likes)
+                .environmentObject(waveSession)
                 .preferredColorScheme(.dark)
         }
         .onAppear {
@@ -76,6 +78,7 @@ struct MainView: View {
             // `configure` идемпотентен: повторный вход на экран не перетрёт
             // текущую очередь восстановленным состоянием.
             player.configure(userID: account.uid)
+            waveSession.attach(player: player)
             await likes.load()
         }
     }
@@ -162,6 +165,7 @@ private struct MainScrollContent: View {
 
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var player: AudioPlayer
+    @EnvironmentObject private var waveSession: WaveSessionController
     @Environment(\.contentTone) private var tone
 
     var body: some View {
@@ -463,11 +467,14 @@ private struct MainScrollContent: View {
                     .foregroundStyle(tone.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                waveChips
+
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(tracks) { track in
                             Button {
-                                player.play(track: track, in: tracks)
+                                Haptics.light()
+                                waveSession.start(from: track)
                             } label: {
                                 waveTrackCard(track)
                             }
@@ -477,14 +484,102 @@ private struct MainScrollContent: View {
                     .padding(.vertical, 2)
                 }
 
-                GlassButton(
-                    "Играть всё",
-                    systemImage: "play.fill",
-                    prominence: .prominent,
-                    fullWidth: true
-                ) {
-                    player.play(tracks: tracks, startAt: 0)
+                playWaveButton
+
+                if let failure = waveSession.failure {
+                    ErrorStateCard(error: failure, cornerRadius: 24, padding: 16) {
+                        waveSession.start()
+                    }
                 }
+            }
+        }
+    }
+
+    /// Чипы настроек волны. Значения превращаются в сиды сессии
+    /// (`settingDiversity:discover`, `settingLanguage:russian`,
+    /// `mood:calm`, `mood:energetic`); «спокойное» и «энергичное» —
+    /// взаимоисключающие, потому что сервер принимает один `mood`.
+    private var waveChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                waveChip("Только новое", isOn: waveSession.settings.onlyNew) {
+                    updateSettings { $0.onlyNew.toggle() }
+                }
+
+                waveChip("По-русски", isOn: waveSession.settings.russian) {
+                    updateSettings { $0.russian.toggle() }
+                }
+
+                waveChip("Спокойное", isOn: waveSession.settings.mood == .calm) {
+                    updateSettings { settings in
+                        settings.mood = settings.mood == .calm ? nil : .calm
+                    }
+                }
+
+                waveChip("Энергичное", isOn: waveSession.settings.mood == .energetic) {
+                    updateSettings { settings in
+                        settings.mood = settings.mood == .energetic ? nil : .energetic
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func waveChip(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.selection()
+            action()
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isOn ? tone.primary : tone.secondary)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background {
+                    Capsule()
+                        .fill(isOn ? Color.white.opacity(0.18) : Color.white.opacity(0.06))
+                }
+                .overlay {
+                    Capsule()
+                        .strokeBorder(
+                            isOn ? Color.white.opacity(0.35) : Color.white.opacity(0.12),
+                            lineWidth: 1
+                        )
+                }
+        }
+        .buttonStyle(PressableStyle(scale: 0.95))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .accessibilityLabel(title)
+        .accessibilityHint(isOn ? "Выключить" : "Включить")
+    }
+
+    private func updateSettings(_ change: (inout WaveSettings) -> Void) {
+        var settings = waveSession.settings
+        change(&settings)
+        waveSession.settings = settings
+    }
+
+    @ViewBuilder
+    private var playWaveButton: some View {
+        if waveSession.isStarting {
+            HStack(spacing: 8) {
+                ProgressView().tint(tone.secondary)
+                Text("Запускаем волну...")
+                    .font(.footnote)
+                    .foregroundStyle(tone.secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(height: 46)
+        } else {
+            GlassButton(
+                "Играть всё",
+                systemImage: "play.fill",
+                prominence: .prominent,
+                fullWidth: true
+            ) {
+                Haptics.light()
+                waveSession.start()
             }
         }
     }

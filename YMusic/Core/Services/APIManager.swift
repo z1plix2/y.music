@@ -144,6 +144,95 @@ final class APIManager: Sendable {
         )
     }
 
+    // MARK: - Сессии ротора
+
+    /// `POST /rotor/session/new` — бесконечная волна партиями.
+    /// Тело: `{"seeds": [...], "trackToStartFrom": "id:albumId"}`.
+    func rotorSessionNew(
+        seeds: [String],
+        trackToStartFrom: String?,
+        clientHeaderValue: String
+    ) async throws -> RotorSessionStart {
+        var body: [String: Any] = ["seeds": seeds]
+        if let trackToStartFrom {
+            body["trackToStartFrom"] = trackToStartFrom
+        }
+
+        return try await client.send(
+            Endpoint.jsonObject(
+                "rotor/session/new",
+                body: body,
+                headers: ["X-Yandex-Music-Client": clientHeaderValue]
+            ),
+            as: RotorSessionStart.self
+        )
+    }
+
+    /// `POST /rotor/session/{id}/tracks` — следующая партия.
+    /// `queue` — уже сыгранные треки (`id` или `id:albumId`), чтобы не повторялись.
+    func rotorSessionTracks(
+        sessionID: String,
+        queue: [String],
+        clientHeaderValue: String
+    ) async throws -> RotorSessionBatch {
+        try await client.send(
+            Endpoint.jsonObject(
+                "rotor/session/\(sessionID)/tracks",
+                body: ["queue": queue],
+                headers: ["X-Yandex-Music-Client": clientHeaderValue]
+            ),
+            as: RotorSessionBatch.self
+        )
+    }
+
+    /// `POST /rotor/session/{id}/feedback` — событие прослушивания.
+    ///
+    /// Тело: `{"event": {"type": ..., "timestamp": ..., "trackId": ...,
+    /// "totalPlayedSeconds": ...}, "batchId": ...}`. Ключи camelCase —
+    /// так их сериализует клиент в `MarshalX/yandex-music-api`
+    /// (`to_dict(for_request: true)`).
+    func rotorSessionFeedback(
+        sessionID: String,
+        type: RotorFeedbackType,
+        trackID: String?,
+        seconds: Double?,
+        batchID: String?,
+        clientHeaderValue: String
+    ) async throws {
+        var event: [String: Any] = [
+            "type": type.rawValue,
+            "timestamp": Self.isoTimestamp()
+        ]
+        if let trackID {
+            event["trackId"] = trackID
+        }
+        if let seconds {
+            event["totalPlayedSeconds"] = seconds
+        }
+
+        var body: [String: Any] = ["event": event]
+        if let batchID {
+            body["batchId"] = batchID
+        }
+
+        try await client.sendIgnoringResponse(
+            Endpoint.jsonObject(
+                "rotor/session/\(sessionID)/feedback",
+                body: body,
+                headers: ["X-Yandex-Music-Client": clientHeaderValue]
+            )
+        )
+    }
+
+    /// Время события — ISO 8601 с миллисекундами, как в примере библиотеки
+    /// (`2024-01-01T12:00:00.000Z`). Форматтер создаётся на вызов: он не
+    /// потокобезопасен, а держать его в общем состоянии незачем.
+    private static func isoTimestamp() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date())
+    }
+
     // MARK: - Треки
 
     /// `/tracks` принимает несколько id за раз: `track-ids=1:2:3`.
