@@ -168,9 +168,15 @@ private struct MainScrollContent: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 26) {
                 header
+
+                if showsContinueCard {
+                    continueCard
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
                 waveCard
 
-                if catalog.isLoadingInitial, !player.recents.isEmpty {
+                if !player.recents.isEmpty {
                     recentsSection
                 }
 
@@ -182,6 +188,7 @@ private struct MainScrollContent: View {
 
                 footer
             }
+            .animation(.easeInOut(duration: 0.25), value: showsContinueCard)
             .padding(.horizontal, 20)
             .padding(.top, 14)
             .padding(.bottom, 140)
@@ -282,6 +289,81 @@ private struct MainScrollContent: View {
         let source = account.displayName ?? account.fullName ?? account.login ?? "Y"
         let first = source.first.map(String.init) ?? "Y"
         return first.uppercased()
+    }
+
+    // MARK: Продолжить слушать
+
+    /// Пауза — единственный случай, когда карточка нужна: при `.playing`
+    /// трек уже виден в MiniPlayer, при `.idle`/`.failed`/пустой очереди
+    /// продолжать нечего. `.preparing` тоже не показываем — иначе карточка
+    /// мигает на каждом переключении.
+    private var showsContinueCard: Bool {
+        guard player.currentTrack != nil, !player.queue.isEmpty else { return false }
+        if case .paused = player.status { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var continueCard: some View {
+        if let track = player.currentTrack {
+            GlassCard(cornerRadius: 20, padding: 12) {
+                HStack(spacing: 12) {
+                    CachedAsyncImage(url: track.artworkURL) {
+                        ZStack {
+                            Color.white.opacity(0.08)
+                            Image(systemName: "music.note")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(tone.primary)
+                            .lineLimit(1)
+
+                        Text(track.artistLine)
+                            .font(.caption2)
+                            .foregroundStyle(tone.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    // Иконка, а не Button: тап по всей карточке уже вызывает
+                    // togglePlayPause, вложенная кнопка дала бы двойной вызов.
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(tone.primary)
+                        .frame(width: 38, height: 38)
+                        .background {
+                            Circle()
+                                .fill(.ultraThinMaterial)
+                                .overlay { Circle().fill(Color.black.opacity(0.14)) }
+                        }
+                        .overlay {
+                            Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                        }
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .onTapGesture {
+                Haptics.light()
+                player.togglePlayPause()
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Продолжить: \(track.title)")
+            .accessibilityHint("Играть")
+            .accessibilityAction {
+                Haptics.light()
+                player.togglePlayPause()
+            }
+        }
     }
 
     // MARK: Моя волна
@@ -445,37 +527,81 @@ private struct MainScrollContent: View {
 
     // MARK: Недавнее
 
+    /// Последние треки из `PlaybackStateStore` (заполняется в `AudioPlayer`
+    /// при каждом `play`). Показываем 10 — в хранилище лежит до 20.
+    private var recentTracks: [Track] {
+        var seen = Set<Int>()
+        var result: [Track] = []
+
+        for track in player.recents.prefix(10) {
+            guard seen.insert(track.id).inserted else { continue }
+            result.append(track)
+        }
+
+        return result
+    }
+
+    @ViewBuilder
     private var recentsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            GlassSectionHeader("Недавнее", subtitle: "Локально, до загрузки каталога")
+        let tracks = recentTracks
 
-            GlassCard(cornerRadius: 24, padding: 8) {
-                VStack(spacing: 0) {
-                    ForEach(Array(player.recents.enumerated()), id: \.element.id) { index, track in
-                        recentsRow(track)
+        if !tracks.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                GlassSectionHeader("Недавнее", subtitle: "Локально, последние треки")
 
-                        if index < player.recents.count - 1 {
-                            Rectangle()
-                                .fill(Color.white.opacity(0.07))
-                                .frame(height: 0.5)
-                                .padding(.leading, 68)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(tracks) { track in
+                            Button {
+                                Haptics.light()
+                                player.play(track: track, in: tracks)
+                            } label: {
+                                recentCard(track)
+                            }
+                            .buttonStyle(PressableStyle(scale: 0.96))
                         }
                     }
+                    .padding(.vertical, 2)
                 }
             }
         }
     }
 
-    private func recentsRow(_ track: Track) -> some View {
-        let isCurrent = player.currentTrack?.id == track.id
-        let queue = player.recents
+    private func recentCard(_ track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CachedAsyncImage(url: track.artworkURL) {
+                ZStack {
+                    Color.white.opacity(0.07)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.25))
+                }
+            }
+            .frame(width: 100, height: 100)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            }
 
-        return TrackRowView(
-            track: track,
-            isCurrent: isCurrent,
-            isPlaying: isCurrent && player.isPlaying,
-            onTap: { player.play(track: track, in: queue) }
-        )
+            Text(track.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tone.primary)
+                .lineLimit(2)
+                .frame(width: 100, alignment: .leading)
+                .frame(minHeight: 30, alignment: .topLeading)
+
+            Text(track.artistLine)
+                .font(.caption2)
+                .foregroundStyle(tone.tertiary)
+                .lineLimit(1)
+                .frame(width: 100, alignment: .leading)
+        }
+        .frame(width: 100, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(track.title), \(track.artistLine)")
+        .accessibilityHint("Играть")
     }
 
     // MARK: Подвал
