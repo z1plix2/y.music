@@ -1,0 +1,92 @@
+import SwiftUI
+
+/// Строка трека, общая для каталога, «Мне нравится» и плейлиста.
+///
+/// Лавка/плей-зона разделены: тап по информации играет трек через `onTap`,
+/// сердечко остаётся отдельной кнопкой. Так не возникает вложенных `Button`,
+/// которые в SwiftUI перехватывают тапы друг у друга.
+struct TrackRowView: View {
+    let track: Track
+    var isCurrent: Bool = false
+    var isPlaying: Bool = false
+    var showsLike: Bool = true
+    /// Тап по строке (кроме сердечка и длительности).
+    var onTap: (() -> Void)? = nil
+    /// Вызывается после успешного снятия лайка: «Мне нравится» убирает строку.
+    var onUnlike: ((Track) -> Void)? = nil
+
+    @EnvironmentObject private var likes: LikeStore
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button {
+                onTap?()
+            } label: {
+                HStack(spacing: 12) {
+                    cover
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(track.title)
+                            .font(.system(size: 15, weight: isCurrent ? .semibold : .medium))
+                            .foregroundStyle(tone.primary)
+                            .lineLimit(1)
+
+                        Text(track.artistLine)
+                            .font(.caption)
+                            .foregroundStyle(tone.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(onTap == nil)
+
+            if showsLike {
+                LikeButton(
+                    isLiked: likes.isLiked(track.id),
+                    isPending: likes.isPending(track.id)
+                ) {
+                    Task {
+                        let nowLiked = await likes.toggle(track)
+                        if !nowLiked { onUnlike?(track) }
+                    }
+                }
+            }
+
+            Text(track.durationText)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(tone.tertiary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+    }
+
+    private var cover: some View {
+        ZStack {
+            CachedAsyncImage(url: track.artworkURL) {
+                ZStack {
+                    Color.white.opacity(0.08)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.25))
+                }
+            }
+            .frame(width: 52, height: 52)
+
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.45))
+
+                Image(systemName: isPlaying ? "waveform" : "pause.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 52, height: 52)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}

@@ -1,0 +1,89 @@
+import SwiftUI
+
+@main
+struct YMusicApp: App {
+    var body: some Scene {
+        WindowGroup {
+            RootView()
+                .preferredColorScheme(.dark)
+        }
+    }
+}
+
+/// Переключает корневые экраны по состоянию сессии.
+///
+/// `@MainActor` на структуре: `AuthService` и `AudioPlayer` изолированы
+/// на главном исполнителе, и без этого их создание в инициализаторе View
+/// не проходит проверку Swift 6.
+@MainActor
+struct RootView: View {
+    @StateObject private var auth = AuthService()
+
+    // Для проверки управления без сети можно подменить источник:
+    // `AudioPlayer(streamProvider: BundledDemoStreamProvider())`
+    // и положить demo-track.m4a в бандл.
+    @StateObject private var player = AudioPlayer()
+
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        ZStack {
+            switch auth.state {
+            case .restoring:
+                SplashView()
+
+            case .signedOut:
+                LoginView()
+                    .transition(.opacity)
+
+            case .signedIn(let account):
+                MainView(account: account)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            }
+        }
+        .environmentObject(auth)
+        .environmentObject(player)
+        .animation(.easeInOut(duration: 0.35), value: auth.state)
+        .task { await auth.restore() }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background:
+                // Играем дальше (UIBackgroundModes: audio), но состояние
+                // очереди фиксируем: система может выгрузить процесс.
+                player.persistNow()
+
+            case .inactive:
+                // Если очередь пуста, держать аудиосессию и пульт незачем.
+                if player.queue.isEmpty {
+                    player.teardown()
+                }
+
+            case .active:
+                // Возврат из фона: восстановить remote-команды, если очередь
+                // непустая (teardown мог их снять на .inactive).
+                player.reinstallRemoteIfNeeded()
+
+            @unknown default:
+                break
+            }
+        }
+    }
+}
+
+/// Экран на время чтения токена из Keychain (десятки миллисекунд).
+private struct SplashView: View {
+    var body: some View {
+        ZStack {
+            LiquidBackdrop()
+
+            VStack(spacing: 20) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                ProgressView()
+                    .tint(.white.opacity(0.8))
+            }
+        }
+    }
+}

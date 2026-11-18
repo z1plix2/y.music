@@ -1,0 +1,19 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+*.ipa
+*.dSYM
+
+# XcodeGen
+YMusic.xcodeproj/
+
+# macOS
+.DS_Store
+
+# Секреты: client_secret и токены не должны попадать в репозиторий
+Secrets.plist
+*.secrets

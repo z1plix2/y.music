@@ -1,0 +1,191 @@
+import SwiftUI
+
+/// Полный список «Мне нравится». Использует ту же пагинацию, что и каталог:
+/// `MusicCatalogProviding.likedPage(offset:limit:)`, но вынесенную в
+/// `LikedTracksViewModel`, чтобы не дублировать логику страниц в двух местах.
+struct LikedTracksView: View {
+    @StateObject private var viewModel: LikedTracksViewModel
+
+    @EnvironmentObject private var player: AudioPlayer
+    @Environment(\.contentTone) private var tone
+    @Environment(\.dismiss) private var dismiss
+
+    init(userID: Int) {
+        _viewModel = StateObject(wrappedValue: LikedTracksViewModel(userID: userID))
+    }
+
+    var body: some View {
+        DynamicBackground(
+            imageURL: viewModel.tracks.first?.artworkURL,
+            cacheKey: viewModel.tracks.first?.artworkURL?.absoluteString ?? "liked-tracks",
+            fallback: .brand
+        ) {
+            VStack(spacing: 0) {
+                topBar
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        switch viewModel.state {
+                        case .idle, .loading:
+                            skeleton
+
+                        case .loaded(let tracks):
+                            if tracks.isEmpty {
+                                emptyCard
+                            } else {
+                                list(tracks)
+                            }
+
+                        case .failed(let error):
+                            errorCard(error)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
+                    .padding(.bottom, 40)
+                }
+            }
+        }
+        .task { await viewModel.loadIfNeeded() }
+    }
+
+    // MARK: - Панель
+
+    private var topBar: some View {
+        HStack {
+            GlassIconButton("chevron.down", label: "Закрыть") {
+                dismiss()
+            }
+
+            Spacer()
+
+            Text("Мне нравится")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(tone.primary)
+
+            Spacer()
+
+            Color.clear.frame(width: 40, height: 40)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    // MARK: - Список
+
+    private func list(_ tracks: [Track]) -> some View {
+        GlassCard(cornerRadius: 24, padding: 8) {
+            VStack(spacing: 0) {
+                ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                    row(track, tracks: tracks)
+
+                    if index < tracks.count - 1 {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.07))
+                            .frame(height: 0.5)
+                            .padding(.leading, 68)
+                    }
+                }
+
+                if viewModel.isLoadingMore {
+                    ProgressView()
+                        .tint(tone.secondary)
+                        .padding(.vertical, 12)
+                }
+            }
+        }
+    }
+
+    private func row(_ track: Track, tracks: [Track]) -> some View {
+        let isCurrent = player.currentTrack?.id == track.id
+
+        return TrackRowView(
+            track: track,
+            isCurrent: isCurrent,
+            isPlaying: isCurrent && player.isPlaying,
+            onTap: { player.play(track: track, in: tracks) },
+            onUnlike: { viewModel.remove(trackID: $0.id) }
+        )
+        .onAppear {
+            Task { await viewModel.loadMoreIfNeeded(currentID: track.id) }
+        }
+    }
+
+    // MARK: - Состояния
+
+    private var skeleton: some View {
+        GlassCard(cornerRadius: 24, padding: 8) {
+            VStack(spacing: 0) {
+                ForEach(0..<6, id: \.self) { _ in
+                    SkeletonTrackRow()
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func errorCard(_ error: APIError) -> some View {
+        GlassCard(cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: error.requiresReauthentication ? "lock.slash" : "exclamationmark.triangle")
+                        .font(.system(size: 16, weight: .semibold))
+
+                    Text(error.requiresReauthentication ? "Сессия истекла" : "Не удалось загрузить")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundStyle(tone.primary)
+
+                Text(error.localizedDescription)
+                    .font(.footnote)
+                    .foregroundStyle(tone.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                GlassButton("Повторить", systemImage: "arrow.clockwise") {
+                    Task { await viewModel.retry() }
+                }
+            }
+        }
+    }
+
+    private var emptyCard: some View {
+        GlassCard(cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Пока ничего не лайкнуто")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tone.primary)
+
+                Text("Сердечко на строке трека добавит его сюда.")
+                    .font(.footnote)
+                    .foregroundStyle(tone.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// Скелетон строки: повторяет геометрию `TrackRowView`, чтобы список не «прыгал».
+private struct SkeletonTrackRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.white.opacity(0.12))
+                    .frame(height: 10)
+
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+                    .frame(width: 90, height: 8)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+    }
+}
