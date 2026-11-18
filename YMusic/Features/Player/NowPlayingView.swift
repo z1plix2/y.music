@@ -9,7 +9,6 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.contentTone) private var tone
 
-    @State private var scrubValue: Double?
     @StateObject private var shazam = ShazamRecognizer()
     @State private var isShazamPresented = false
     @State private var sharePayload: SharePayload?
@@ -82,7 +81,7 @@ struct NowPlayingView: View {
             topBar
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 22) {
+                VStack(spacing: 24) {
                     artwork
                     WaveVisualizer(
                         isPlaying: player.isPlaying,
@@ -93,7 +92,7 @@ struct NowPlayingView: View {
                     )
                     .frame(maxWidth: 320)
                     titles
-                    progress
+                    NowPlayingProgress(fallbackDuration: track?.duration ?? 0)
                     controls
                     actions
                     statusCard
@@ -361,45 +360,10 @@ struct NowPlayingView: View {
         return id
     }
 
-    // MARK: - Прогресс
-
-    private var progress: some View {
-        let total = max(player.duration, track?.duration ?? 0, 1)
-        let shown = min(scrubValue ?? player.currentTime, total)
-
-        return VStack(spacing: 4) {
-            Slider(
-                value: Binding(
-                    get: { shown },
-                    set: { scrubValue = $0 }
-                ),
-                in: 0...total,
-                onEditingChanged: { editing in
-                    guard !editing else { return }
-                    player.seek(to: scrubValue ?? player.currentTime)
-                    scrubValue = nil
-                }
-            )
-            .tint(tone.primary)
-
-            HStack {
-                Text(Self.timeText(shown))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(tone.tertiary)
-
-                Spacer()
-
-                Text(Self.timeText(total))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(tone.tertiary)
-            }
-        }
-    }
-
     // MARK: - Кнопки
 
     private var controls: some View {
-        HStack(spacing: 26) {
+        HStack(spacing: 24) {
             Button {
                 player.toggleShuffle()
             } label: {
@@ -495,7 +459,7 @@ struct NowPlayingView: View {
     @ViewBuilder
     private var actions: some View {
         if let track {
-            HStack(spacing: 22) {
+            HStack(spacing: 24) {
                 dislikeButton(track)
 
                 LikeButton(
@@ -567,8 +531,51 @@ struct NowPlayingView: View {
             }
         }
     }
+}
 
-    // MARK: - Утилиты
+/// Прогресс вынесен в отдельный View: `currentTime` меняется дважды в
+/// секунду, и без изоляции перерисовывался бы весь экран с обложкой,
+/// визуализатором и кнопками.
+struct NowPlayingProgress: View {
+    @EnvironmentObject private var player: AudioPlayer
+    @Environment(\.contentTone) private var tone
+
+    var fallbackDuration: Double = 0
+
+    @State private var scrubValue: Double?
+
+    var body: some View {
+        let total = max(player.duration, fallbackDuration, 1)
+        let shown = min(scrubValue ?? player.currentTime, total)
+
+        return VStack(spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { shown },
+                    set: { scrubValue = $0 }
+                ),
+                in: 0...total,
+                onEditingChanged: { editing in
+                    guard !editing else { return }
+                    player.seek(to: scrubValue ?? player.currentTime)
+                    scrubValue = nil
+                }
+            )
+            .tint(tone.primary)
+
+            HStack {
+                Text(Self.timeText(shown))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(tone.tertiary)
+
+                Spacer()
+
+                Text(Self.timeText(total))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(tone.tertiary)
+            }
+        }
+    }
 
     private static func timeText(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }

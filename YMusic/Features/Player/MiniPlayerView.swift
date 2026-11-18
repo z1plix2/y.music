@@ -61,7 +61,7 @@ struct MiniPlayerView: View {
         .padding(.vertical, 8)
         .glassPanel(cornerRadius: 22)
         .overlay(alignment: .bottom) {
-            progressBar
+            MiniPlayerProgressBar()
                 .padding(.horizontal, 16)
                 .padding(.bottom, 4)
         }
@@ -69,23 +69,6 @@ struct MiniPlayerView: View {
         .onTapGesture(perform: onOpen)
         .accessibilityElement(children: .contain)
         .accessibilityHint("Открыть плеер")
-    }
-
-    private var progressBar: some View {
-        GeometryReader { proxy in
-            let fraction = player.duration > 0
-                ? min(max(player.currentTime / player.duration, 0), 1)
-                : 0
-
-            ZStack(alignment: .leading) {
-                Capsule().fill(tone.primary.opacity(0.16))
-                Capsule()
-                    .fill(tone.primary.opacity(0.75))
-                    .frame(width: max(2, proxy.size.width * fraction))
-            }
-        }
-        .frame(height: 2)
-        .allowsHitTesting(false)
     }
 
     private var playSymbol: String {
@@ -100,5 +83,31 @@ struct MiniPlayerView: View {
             return "Превью · \(track.artistLine)"
         }
         return track.artistLine
+    }
+}
+
+/// Только тонкая полоска прогресса. Вынесена отдельным View: `currentTime`
+/// меняется дважды в секунду, и без изоляции перерисовывался бы весь
+/// `MiniPlayerView` вместе с обложкой и кнопкой.
+struct MiniPlayerProgressBar: View {
+    @EnvironmentObject private var player: AudioPlayer
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        GeometryReader { proxy in
+            let fraction = player.duration > 0
+                ? min(max(player.currentTime / player.duration, 0), 1)
+                : 0
+
+            ZStack(alignment: .leading) {
+                Capsule().fill(tone.primary.opacity(0.16))
+                Capsule()
+                    .fill(tone.primary.opacity(0.75))
+                    .frame(width: max(2, proxy.size.width * fraction))
+            }
+        }
+        .frame(height: 2)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

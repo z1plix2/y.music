@@ -61,15 +61,17 @@ struct DynamicBackground<Content: View>: View {
             Circle()
                 .fill(palette.primary.color)
                 .frame(width: 540, height: 540)
-                .blur(radius: 110)
+                .blur(radius: 80)
                 .opacity(0.85)
+                .drawingGroup()
                 .offset(x: -150, y: isDrifting ? -250 : -190)
 
             Circle()
                 .fill(palette.secondary.color)
                 .frame(width: 480, height: 480)
-                .blur(radius: 120)
+                .blur(radius: 90)
                 .opacity(0.7)
+                .drawingGroup()
                 .offset(x: 170, y: isDrifting ? 360 : 290)
 
             // Скрим: гарантирует контраст текста даже при светлой обложке,

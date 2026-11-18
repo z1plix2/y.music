@@ -62,7 +62,13 @@ struct SearchView: View {
     private func destination(for route: SearchRoute) -> some View {
         switch route {
         case .playlist(let playlist):
-            PlaylistDetailView(playlist: playlist, userID: viewModel.userID)
+            PlaylistDetailView(
+                playlist: playlist,
+                userID: viewModel.userID,
+                onOpenArtist: { artistID in
+                    openArtistFromSheet(artistID)
+                }
+            )
         case .artist(let artistID):
             ArtistDetailView(artistID: artistID)
         case .album(let albumID):
@@ -71,6 +77,18 @@ struct SearchView: View {
     }
 
     // MARK: - Панель и поле
+
+    /// Из вложенного плейлиста: закрываем его, затем открываем артиста.
+    /// На iOS 15 смена `item` у уже показанного sheet не срабатывает.
+    private func openArtistFromSheet(_ artistID: Int) {
+        route = nil
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            route = .artist(artistID)
+        }
+    }
 
     private var topBar: some View {
         GlassScreenHeader(
@@ -232,7 +250,7 @@ struct SearchView: View {
                 GlassSectionHeader("Треки", subtitle: "\(result.tracks.count)")
 
                 GlassCard(cornerRadius: 24, padding: 8) {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(Array(result.tracks.enumerated()), id: \.element.id) { index, track in
                             trackRow(track, in: result.tracks)
 

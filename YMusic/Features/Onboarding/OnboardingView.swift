@@ -131,7 +131,7 @@ struct OnboardingView: View {
                         Spacer(minLength: 0)
                     }
 
-                    WaveVisualizer(isPlaying: true, height: 96)
+                    WaveVisualizer(isPlaying: page == 1, height: 96)
                         .frame(maxWidth: .infinity)
 
                     HStack(spacing: 8) {

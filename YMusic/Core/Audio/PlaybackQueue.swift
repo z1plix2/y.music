@@ -37,10 +37,14 @@ struct PlaybackQueue: Equatable, Sendable {
         let clamped = min(max(index, 0), tracks.count - 1)
         if isShuffled {
             self.order = [clamped] + tracks.indices.filter { $0 != clamped }.shuffled()
+            self.position = 0
         } else {
             self.order = Array(tracks.indices)
+            // Без shuffle стартовый индекс — это позиция в обычном порядке.
+            // Раньше здесь всегда был 0, и `play(tracks:startAt:)` запускал
+            // первый трек независимо от того, какой выбрал пользователь.
+            self.position = clamped
         }
-        self.position = 0
     }
 
     var isEmpty: Bool { tracks.isEmpty }

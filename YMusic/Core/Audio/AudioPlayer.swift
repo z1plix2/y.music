@@ -132,7 +132,11 @@ final class AudioPlayer: ObservableObject {
     // MARK: - Публичное управление
 
     func play(track: Track, in tracks: [Track]) {
-        let index = tracks.firstIndex(of: track) ?? 0
+        // Сначала по id: у трека из search/истории могут отличаться поля
+        // (duration, albums), и синтезированный Equatable дал бы nil → 0.
+        let index = tracks.firstIndex { $0.id == track.id }
+            ?? tracks.firstIndex(of: track)
+            ?? 0
         queue = PlaybackQueue(
             tracks: tracks,
             startAt: index,

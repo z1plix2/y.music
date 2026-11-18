@@ -26,10 +26,16 @@ struct WaveVisualizer: View {
     var fixedTime: Double?
 
     @Environment(\.contentTone) private var tone
+    @Environment(\.scenePhase) private var scenePhase
     @State private var loadedPalette: ColorPalette?
     @State private var bursts: [ParticleBurst] = []
 
     private static let count = 96
+
+    /// На паузе и в фоне кадров нет совсем: `TimelineView` перестаёт тикать.
+    private var isPaused: Bool {
+        !isPlaying || scenePhase != .active
+    }
 
     var body: some View {
         Group {
@@ -38,7 +44,9 @@ struct WaveVisualizer: View {
                     drawParticles(in: context, size: size, time: fixedTime)
                 }
             } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isPlaying)) { timeline in
+                // 24 FPS: для медленных частиц разницы не видно, а кадров
+                // на 20% меньше, чем на 30.
+                TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: isPaused)) { timeline in
                     let time = timeline.date.timeIntervalSinceReferenceDate
 
                     Canvas { context, size in

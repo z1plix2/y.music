@@ -368,9 +368,7 @@ struct SettingsView: View {
     }
 
     private var versionText: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(version) (\(build))"
+        "\(AppInfo.version) (\(AppInfo.build))"
     }
 
     private func aboutButton(

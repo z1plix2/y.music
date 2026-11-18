@@ -128,7 +128,13 @@ struct MainView: View {
         case .liked:
             LikedTracksView(userID: account.uid)
         case .playlist(let playlist):
-            PlaylistDetailView(playlist: playlist, userID: account.uid)
+            PlaylistDetailView(
+                playlist: playlist,
+                userID: account.uid,
+                onOpenArtist: { artistID in
+                    openArtist(artistID)
+                }
+            )
         case .artist(let artistID):
             ArtistDetailView(artistID: artistID)
         case .album(let albumID):
@@ -257,7 +263,7 @@ private struct MainScrollContent: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 24) {
                 header
 
                 if catalog.isRefreshing {
@@ -350,17 +356,27 @@ private struct MainScrollContent: View {
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(tone.primary)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
 
                     if stats.snapshot.currentStreak > 0 {
                         streakChip
                     }
                 }
 
-                if let login = account.login, !login.isEmpty {
-                    Text("@\(login)")
-                        .font(.caption)
-                        .foregroundStyle(tone.secondary)
+                HStack(spacing: 5) {
+                    if let login = account.login, !login.isEmpty {
+                        Text("@\(login)")
+                            .lineLimit(1)
+
+                        Text("·")
+                            .foregroundStyle(tone.tertiary)
+                    }
+
+                    Text(AppInfo.versionText)
+                        .lineLimit(1)
                 }
+                .font(.caption)
+                .foregroundStyle(tone.secondary)
             }
 
             Spacer(minLength: 8)
@@ -577,7 +593,7 @@ private struct MainScrollContent: View {
                 waveChips
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
+                    LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(tracks) { track in
                             Button {
                                 Haptics.light()
@@ -775,7 +791,7 @@ private struct MainScrollContent: View {
                 GlassSectionHeader("Недавнее", subtitle: "Локально, последние треки")
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
+                    LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(tracks) { track in
                             Button {
                                 Haptics.light()

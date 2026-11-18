@@ -15,7 +15,7 @@ struct CatalogView: View {
     @Environment(\.contentTone) private var tone
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 24) {
             Group {
                 switch viewModel.state {
                 case .idle, .loading:
@@ -89,7 +89,7 @@ struct CatalogView: View {
             )
 
             GlassCard(cornerRadius: 24, padding: 8) {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 0) {
                     ForEach(Array(landing.items.enumerated()), id: \.element.id) { index, item in
                         if case .track(let track) = item {
                             trackRow(track)
@@ -131,7 +131,7 @@ struct CatalogView: View {
     // MARK: - Состояния
 
     private var skeletonSections: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 14) {
                 bar(width: 140, height: 14)
 

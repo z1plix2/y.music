@@ -30,6 +30,12 @@ struct StatsView: View {
                             message: "Послушайте несколько треков — здесь появятся цифры."
                         )
                     }
+
+                    Text(AppInfo.versionText)
+                        .font(.caption2)
+                        .foregroundStyle(tone.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 4)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 14)

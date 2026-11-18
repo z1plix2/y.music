@@ -9,10 +9,19 @@ struct PlaylistDetailView: View {
     @Environment(\.contentTone) private var tone
     @Environment(\.dismiss) private var dismiss
 
-    init(playlist: Playlist, userID: Int) {
+    /// Тап по артисту в шапке. По умолчанию ничего не делает: экран можно
+    /// открыть откуда угодно, а навигацию решает вызывающий.
+    var onOpenArtist: (Int) -> Void = { _ in }
+
+    init(
+        playlist: Playlist,
+        userID: Int,
+        onOpenArtist: @escaping (Int) -> Void = { _ in }
+    ) {
         _viewModel = StateObject(
             wrappedValue: PlaylistDetailViewModel(playlist: playlist, userID: userID)
         )
+        self.onOpenArtist = onOpenArtist
     }
 
     private var playlist: Playlist { viewModel.playlist }
@@ -97,7 +106,25 @@ struct PlaylistDetailView: View {
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if let owner = playlist.owner?.name, !owner.isEmpty {
+                if let artist = openableArtist {
+                    Button {
+                        Haptics.selection()
+                        onOpenArtist(artist.id)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(artist.name)
+                                .font(.footnote)
+                                .lineLimit(1)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundStyle(tone.secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.97))
+                    .accessibilityLabel("Открыть артиста \(artist.name)")
+                } else if let owner = playlist.owner?.name, !owner.isEmpty {
                     Text(owner)
                         .font(.footnote)
                         .foregroundStyle(tone.secondary)
@@ -130,6 +157,15 @@ struct PlaylistDetailView: View {
         return playlist.subtitle
     }
 
+    /// Первый трек с настоящим id артиста: у восстановленных из истории id 0.
+    private var openableArtist: (id: Int, name: String)? {
+        for track in viewModel.tracks {
+            guard let artist = track.artists?.first(where: { $0.id > 0 }) else { continue }
+            return (artist.id, artist.name)
+        }
+        return nil
+    }
+
     private func truncationNotice(_ shown: Int) -> some View {
         GlassCard(cornerRadius: 18, padding: 14) {
             HStack(spacing: 10) {
@@ -151,7 +187,7 @@ struct PlaylistDetailView: View {
 
     private func trackList(_ tracks: [Track]) -> some View {
         GlassCard(cornerRadius: 24, padding: 8) {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                     row(track, index: index)
 
