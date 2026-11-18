@@ -12,42 +12,36 @@ struct YandexToken: Codable {
     }
 }
 
-/// Единственное место, которое знает, где лежит токен и как его обновлять.
+/// Единственное место, которое знает, где лежит токен.
 ///
 /// Actor, потому что `APIClient` дёргает его конкурентно из разных задач.
-/// Refresh — single-flight: если пять запросов одновременно получили 401,
-/// в OAuth уйдёт один POST, остальные дождутся результата.
+///
+/// Токен получен implicit-потоком (`response_type=token`), поэтому
+/// `refresh_token` у него нет: продлить сессию нельзя, после истечения срока
+/// нужен повторный вход. `refresh()` оставлен ради `APIClient`: на 401 он
+/// получит `unauthorized`, а `AuthService` переведёт приложение на экран входа.
 actor TokenStore {
     static let shared = TokenStore()
 
     private let keychain: KeychainStore
-    private let config: AuthConfig
-    private let session: URLSession
     private let account = "yandex.oauth.token"
 
-    private var refreshTask: Task<YandexToken, Error>?
-
-    init(
-        config: AuthConfig = .fromBundle(),
-        keychain: KeychainStore = KeychainStore(),
-        session: URLSession = .shared
-    ) {
-        self.config = config
+    init(keychain: KeychainStore = KeychainStore()) {
         self.keychain = keychain
-        self.session = session
     }
 
     // MARK: - Чтение
 
     var hasToken: Bool {
-        persistedToken()?.accessToken.isEmpty == false
+        guard let token = persistedToken() else { return false }
+        return !token.accessToken.isEmpty && !token.isExpired
     }
 
-    /// Возвращает access token как есть. Если он протух, сервер ответит 401,
-    /// `APIClient` вызовет `refresh()` и повторит запрос — лишний round-trip
-    /// на каждый вызов нам не нужен.
+    /// Возвращает access token как есть. Просроченный токен не отдаём:
+    /// иначе каждый запрос делал бы лишний round-trip с 401.
     func currentToken() -> String? {
-        persistedToken()?.accessToken
+        guard let token = persistedToken(), !token.isExpired else { return nil }
+        return token.accessToken
     }
 
     // MARK: - Запись
@@ -59,66 +53,13 @@ actor TokenStore {
 
     func signOut() {
         keychain.remove(account: account)
-        refreshTask?.cancel()
-        refreshTask = nil
     }
 
     // MARK: - Обновление
 
+    /// Обновление невозможно: implicit-поток не выдаёт refresh token.
     func refresh() async throws -> String {
-        if let existing = refreshTask {
-            return try await existing.value.accessToken
-        }
-
-        let task = Task<YandexToken, Error> { try await self.performRefresh() }
-        refreshTask = task
-        defer { refreshTask = nil }
-
-        let token = try await task.value
-        return token.accessToken
-    }
-
-    private func performRefresh() async throws -> YandexToken {
-        guard let stored = persistedToken(), let refreshToken = stored.refreshToken else {
-            throw APIError.unauthorized
-        }
-
-        var request = URLRequest(url: config.tokenURL)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        var form = URLComponents()
-        form.queryItems = [
-            URLQueryItem(name: "grant_type", value: "refresh_token"),
-            URLQueryItem(name: "refresh_token", value: refreshToken),
-            URLQueryItem(name: "client_id", value: config.clientID),
-            URLQueryItem(name: "client_secret", value: config.clientSecret)
-        ]
-        request.httpBody = form.percentEncodedQuery?.data(using: .utf8)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.http(status: -1, payload: nil)
-        }
-        guard (200...299).contains(http.statusCode) else {
-            // Refresh-токен отозван: пользователю нужен повторный вход.
-            throw APIError.http(
-                status: http.statusCode,
-                payload: try? JSONDecoder().decode(APIErrorPayload.self, from: data)
-            )
-        }
-
-        let dto = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
-        let token = YandexToken(
-            accessToken: dto.accessToken,
-            refreshToken: dto.refreshToken ?? refreshToken,
-            expiresAt: dto.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
-        )
-        try save(token)
-        return token
+        throw APIError.unauthorized
     }
 
     // MARK: - Хранилище
@@ -131,20 +72,5 @@ actor TokenStore {
             return nil
         }
         return token
-    }
-}
-
-/// Ответ `https://oauth.yandex.ru/token`.
-struct OAuthTokenResponse: Decodable {
-    let accessToken: String
-    let refreshToken: String?
-    let expiresIn: Int?
-    let tokenType: String?
-
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case refreshToken = "refresh_token"
-        case expiresIn = "expires_in"
-        case tokenType = "token_type"
     }
 }

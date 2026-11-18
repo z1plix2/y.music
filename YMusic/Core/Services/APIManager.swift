@@ -34,8 +34,11 @@ final class APIManager: Sendable {
 
     // MARK: - Аккаунт
 
+    /// `/account/status` — единственный ответ, где есть числовой `uid`.
+    /// `/account/about` его больше не отдаёт (только `publicId`).
     func accountAbout() async throws -> Account {
-        try await client.send(Endpoint(path: "account/about"), as: Account.self)
+        let status = try await client.send(Endpoint(path: "account/status"), as: AccountStatus.self)
+        return Account(status: status)
     }
 
     // MARK: - Каталог

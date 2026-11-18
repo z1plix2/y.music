@@ -1,54 +1,40 @@
 import Foundation
 
-/// OAuth-параметры приложения.
+/// Параметры входа.
 ///
-/// `clientID` / `clientSecret` берутся из `Secrets.plist` (в `.gitignore`),
-/// а если его нет — из `Info.plist`. Секрет не должен попадать в репозиторий:
-/// ключи приложения Яндекса выдаются на https://oauth.yandex.ru/client/new.
+/// Вход идёт через клиент официального приложения «Яндекс.Музыка»: только
+/// его токены принимает внутренний API (`api.music.yandex.net`). Своему
+/// OAuth-приложению Яндекс права `music:content` не выдаёт, поэтому вход
+/// через собственный `client_id` упирается в
+/// `403 missing-required-scopes` — проверено на живом сервере.
 struct AuthConfig {
+    /// `client_id` приложения «Яндекс.Музыка». Это не секрет: он публично
+    /// известен и используется всеми сторонними клиентами.
     let clientID: String
-    let clientSecret: String
-    let redirectURI: String
-    let scopes: [String]
 
-    let authorizeURL = URL(string: "https://oauth.yandex.ru/authorize")!
-    let tokenURL = URL(string: "https://oauth.yandex.ru/token")!
+    /// Хост, на который Яндекс возвращает пользователя после согласия.
+    /// Токен приходит во фрагменте: `https://music.yandex.ru/#access_token=...`.
+    static let redirectHost = "music.yandex.ru"
 
-    /// Схема редиректа — по ней `ASWebAuthenticationSession` перехватит
-    /// возврат из браузера (Фаза 1).
-    var callbackScheme: String {
-        URLComponents(string: redirectURI)?.scheme ?? "ymusic"
+    /// Тот же `client_id`, что в `project.yml`/Info.plist не нужен: подпись
+    /// Apple не требуется (TrollStore), а OAuth-секрет для implicit-потока
+    /// не используется.
+    static let yandexMusicClientID = "23cabbbdc6cd418abb4b39c32c41195d"
+
+    private static let authorizeURLString = "https://oauth.yandex.ru/authorize"
+
+    /// Implicit-поток (`response_type=token`): `redirect_uri` не передаём,
+    /// он зарегистрирован за клиентом (музыка.яндекс).
+    var authorizeURL: URL? {
+        var components = URLComponents(string: Self.authorizeURLString)
+        components?.queryItems = [
+            URLQueryItem(name: "response_type", value: "token"),
+            URLQueryItem(name: "client_id", value: clientID)
+        ]
+        return components?.url
     }
 
-    var isConfigured: Bool {
-        !clientID.isEmpty && !redirectURI.isEmpty
-    }
-
-    static func fromBundle(_ bundle: Bundle = .main) -> AuthConfig {
-        let secrets = loadSecrets(from: bundle)
-
-        func value(_ key: String) -> String {
-            secrets[key] ?? bundle.object(forInfoDictionaryKey: key) as? String ?? ""
-        }
-
-        return AuthConfig(
-            clientID: value("YandexClientID"),
-            clientSecret: value("YandexClientSecret"),
-            redirectURI: value("YandexRedirectURI"),
-            scopes: (bundle.object(forInfoDictionaryKey: "YandexScopes") as? [String])
-                ?? ["music:api-public"]
-        )
-    }
-
-    private static func loadSecrets(from bundle: Bundle) -> [String: String] {
-        guard
-            let url = bundle.url(forResource: "Secrets", withExtension: "plist"),
-            let data = try? Data(contentsOf: url),
-            let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-            let dict = plist as? [String: String]
-        else {
-            return [:]
-        }
-        return dict
+    static func fromBundle() -> AuthConfig {
+        AuthConfig(clientID: yandexMusicClientID)
     }
 }

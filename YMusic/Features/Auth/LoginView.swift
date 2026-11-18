@@ -3,6 +3,8 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject private var auth: AuthService
 
+    @State private var isShowingLogin = false
+
     var body: some View {
         ZStack {
             LiquidBackdrop()
@@ -20,6 +22,22 @@ struct LoginView: View {
             .frame(maxWidth: 480)
         }
         .animation(.easeInOut(duration: 0.25), value: auth.isAuthenticating)
+        .sheet(isPresented: $isShowingLogin) {
+            if let url = auth.authorizeURL {
+                YandexLoginView(
+                    authorizeURL: url,
+                    onToken: { token in
+                        isShowingLogin = false
+                        Task { await auth.completeSignIn(with: token) }
+                    },
+                    onError: { message in
+                        isShowingLogin = false
+                        auth.reportLoginError(message)
+                    },
+                    onCancel: { isShowingLogin = false }
+                )
+            }
+        }
     }
 
     // MARK: - Шапка
@@ -67,7 +85,7 @@ struct LoginView: View {
                     .font(.headline)
                     .foregroundStyle(.white)
 
-                Text("Откроется системный Safari — пароль вводится на стороне Яндекса.")
+                Text("Откроется окно Яндекс ID — пароль вводится на стороне Яндекса.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
@@ -80,10 +98,6 @@ struct LoginView: View {
                 errorLabel(message)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-
-            if !auth.isConfigured {
-                configHint
-            }
         }
         .padding(22)
         .glassPanel(cornerRadius: 32)
@@ -91,7 +105,8 @@ struct LoginView: View {
 
     private var signInButton: some View {
         Button {
-            Task { await auth.signIn() }
+            auth.clearError()
+            isShowingLogin = true
         } label: {
             HStack(spacing: 12) {
                 Group {
@@ -103,7 +118,7 @@ struct LoginView: View {
                 }
                 .frame(width: 26, height: 26)
 
-                Text(auth.isAuthenticating ? "Открываем Safari…" : "Войти через Яндекс")
+                Text(auth.isAuthenticating ? "Загружаем аккаунт..." : "Войти через Яндекс")
                     .font(.system(size: 17, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -135,8 +150,7 @@ struct LoginView: View {
             .shadow(color: Color(red: 0.9, green: 0.15, blue: 0.2).opacity(0.35), radius: 22, y: 10)
         }
         .buttonStyle(PressableStyle())
-        .disabled(auth.isAuthenticating || !auth.isConfigured)
-        .opacity(auth.isConfigured ? 1 : 0.55)
+        .disabled(auth.isAuthenticating)
         .accessibilityLabel("Войти через Яндекс")
     }
 
@@ -155,13 +169,6 @@ struct LoginView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.red.opacity(0.14))
         )
-    }
-
-    private var configHint: some View {
-        Text("Нет client_id: положите Secrets.plist рядом с Info.plist (шаблон — Secrets.plist.example).")
-            .font(.caption2)
-            .foregroundStyle(.white.opacity(0.45))
-            .multilineTextAlignment(.center)
     }
 
     private var footnote: some View {

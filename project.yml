@@ -50,15 +50,7 @@ targets:
           - UIInterfaceOrientationPortrait
         UIBackgroundModes:
           - audio
-        # Значения подставляются из локального Secrets.plist (см. AuthConfig).
-        # Здесь намеренно пусто, чтобы не коммитить ключи.
-        YandexClientID: ""
-        YandexRedirectURI: "ymusic://oauth"
-        YandexScopes:
-          - music:api-public
-        CFBundleURLTypes:
-          - CFBundleURLName: com.example.ymusic.oauth
-            CFBundleURLSchemes:
-              - ymusic
+        # Вход — через клиент официального приложения Яндекс.Музыки
+        # (см. AuthConfig); собственных OAuth-ключей в бандле нет.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false

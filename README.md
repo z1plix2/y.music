@@ -72,15 +72,14 @@ y.music/
     │   │   └── ImageLoader.swift     # NSCache + CachedAsyncImage
     │   ├── Networking/               # Endpoint, APIClient (actor), APIError
     │   ├── Auth/
-    │   │   ├── AuthConfig.swift      # client_id / redirect_uri
-    │   │   ├── AuthService.swift     # ASWebAuthenticationSession + состояние сессии
+    │   │   ├── AuthConfig.swift      # client_id официального клиента + URL согласия
+    │   │   ├── AuthService.swift     # состояние сессии, сохранение токена
     │   │   ├── KeychainStore.swift
-    │   │   └── TokenStore.swift      # хранение и refresh токена
+    │   │   └── TokenStore.swift      # хранение токена (без refresh)
     │   ├── Services/APIManager.swift
     │   └── Models/
     └── Resources/
-        ├── Info.plist                # генерируется XcodeGen
-        └── Secrets.plist.example
+        └── Info.plist                # генерируется XcodeGen
 ```
 
 ## Что осталось в TODO
@@ -88,12 +87,12 @@ y.music/
 - **`/landing3`** (блоки главной: новинки, подборки, чарты) — не реализовано.
   Схема `content.blocks[].entities[].data` нестабильна, нужен живой JSON
   для сверки, иначе парсер молча отдаёт пустоту.
-- **`/rotor/station/user:onyourwave/tracks`** («Моя волна») — реализовано.
-  Схема сверена с `MarshalX/yandex-music-api` (`StationTracksResult`/`Sequence`):
-  берём элементы `type == "track"`. **Хвост:** заголовок
+- **`/rotor/station/user:onyourwave/tracks`** («Моя волна») — реализовано
+  и проверено на живом API (200). Схема сверена с
+  `MarshalX/yandex-music-api` (`StationTracksResult`/`Sequence`):
+  берём элементы `type == "track"`. Заголовок
   `X-Yandex-Music-Client` вынесен в константу `YandexRotorProvider.clientHeaderValue`
-  (`YandexMusicAndroid/24023621` из открытого клиента) — при 400 на живом API
-  значение нужно заменить на подходящее. Пустая волна трактуется как ошибка,
+  (`YandexMusicAndroid/24023621`). Пустая волна трактуется как ошибка,
   а не как «нет рекомендаций».
 - **Лайк/анлайк** — подключены к UI (`LikeStore`, сердечко в строке и
   в плеере). Ручки сверены с `MarshalX/yandex-music-api`:
@@ -177,19 +176,26 @@ y.music/
 - «Недавнее» показывается на главном, пока каталог грузится.
 - Выход из аккаунта очищает состояние этого `userID`.
 
-## Настройка OAuth
+## Вход в аккаунт
 
-1. Создать приложение на https://oauth.yandex.ru/client/new.
-2. Redirect URI — `ymusic://oauth` (схема `ymusic` уже объявлена в `Info.plist`).
-3. Скопировать `YMusic/Resources/Secrets.plist.example` → `Secrets.plist` в той же папке и заполнить:
+Приложение входит через **клиент официального приложения «Яндекс.Музыка»**
+(`client_id` в `AuthConfig.swift`) — это не секрет, его используют все
+сторонние клиенты. Собственное OAuth-приложение не подходит: Яндекс не
+выдаёт сторонним приложениям право `music:content`, и внутренний API
+отвечает `403 missing-required-scopes` (проверено на живом сервере).
 
-```xml
-<key>YandexClientID</key><string>ваш_client_id</string>
-<key>YandexClientSecret</key><string>ваш_client_secret</string>
-<key>YandexRedirectURI</key><string>ymusic://oauth</string>
-```
+Поток:
 
-`Secrets.plist` в `.gitignore`: ключи не должны попадать в репозиторий и в `.ipa`.
+1. `YandexLoginView` открывает `https://oauth.yandex.ru/authorize?response_type=token&client_id=...`
+   в `WKWebView` (не Safari: редирект у клиента `https`-овый, а не `ymusic://`).
+2. Пользователь подтверждает доступ на странице Яндекс ID.
+3. Яндекс уводит на `https://music.yandex.ru/#access_token=...`; навигацию
+   перехватывает делегат web-view, токен попадает в Keychain.
+4. `GET /account/status` проверяет токен и отдаёт числовой `uid`.
+
+Implicit-токен живёт около года и не имеет `refresh_token`: когда истечёт,
+приложение попросит войти снова. Cookies Яндекс ID сохраняются между
+запусками, поэтому повторный вход обычно без пароля.
 
 ## Сборка
 
