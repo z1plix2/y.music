@@ -34,6 +34,36 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # Креды OAuth не хранятся в git (Secrets.plist в .gitignore).
+      # Задаются в Settings → Secrets and variables → Actions.
+      - name: Write Secrets.plist
+        env:
+          YM_CLIENT_ID: ${{ secrets.YANDEX_CLIENT_ID }}
+          YM_CLIENT_SECRET: ${{ secrets.YANDEX_CLIENT_SECRET }}
+          YM_REDIRECT_URI: ${{ secrets.YANDEX_REDIRECT_URI }}
+        run: |
+          set -euo pipefail
+          if [ -z "${YM_CLIENT_ID:-}" ]; then
+            echo "::warning::YANDEX_CLIENT_ID не задан — в этой сборке вход работать не будет"
+            exit 0
+          fi
+          REDIRECT="${YM_REDIRECT_URI:-ymusic://oauth}"
+          cat > YMusic/Resources/Secrets.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>YandexClientID</key>
+            <string>${YM_CLIENT_ID}</string>
+            <key>YandexClientSecret</key>
+            <string>${YM_CLIENT_SECRET:-}</string>
+            <key>YandexRedirectURI</key>
+            <string>${REDIRECT}</string>
+          </dict>
+          </plist>
+          PLIST
+          echo "Secrets.plist записан (redirect: ${REDIRECT})"
+
       - name: Generate Xcode project
         run: xcodegen generate
 
