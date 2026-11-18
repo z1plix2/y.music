@@ -74,6 +74,60 @@ final class APIManager: Sendable {
         return PlaylistTracks(tracks: tracks, total: total)
     }
 
+    // MARK: - Артисты и альбомы
+
+    /// `GET /artists/{id}/brief-info` — единственная ручка, которая отдаёт
+    /// имя, аватар, счётчики, популярные треки и альбомы одним запросом.
+    /// `GET /artists/{id}` в API нет (есть `POST /artists` и набор
+    /// `/artists/{id}/...`), поэтому не выдумываем путь.
+    func artistDetail(id: Int) async throws -> ArtistDetail {
+        let response = try await client.send(
+            Endpoint(path: "artists/\(id)/brief-info"),
+            as: ArtistBriefInfo.self
+        )
+        guard let artist = response.artist else { throw APIError.missingResult }
+
+        return ArtistDetail(
+            id: artist.id ?? id,
+            name: artist.name ?? "Неизвестный исполнитель",
+            // cover.uri — шаблон без схемы и с `%%`; Artwork.url делает URL.
+            avatarURL: Artwork.url(from: artist.cover?.uri),
+            counts: artist.counts.map {
+                ArtistDetail.Counts(
+                    tracks: $0.tracks,
+                    directAlbums: $0.directAlbums,
+                    alsoAlbums: $0.alsoAlbums,
+                    alsoTracks: $0.alsoTracks
+                )
+            },
+            // Сервер отдаёт до 10 популярных треков и выборку альбомов —
+            // это не полная дискография, счётчики в UI отдельные.
+            popularTracks: response.popularTracks ?? [],
+            albums: response.albums ?? []
+        )
+    }
+
+    /// `GET /albums/{id}/with-tracks` — альбом с треками.
+    /// Треки лежат не в `tracks`, а в `volumes` (массив «сторон»); склеиваем
+    /// в порядке томов.
+    func albumDetail(id: Int) async throws -> AlbumDetail {
+        let album = try await client.send(
+            Endpoint(path: "albums/\(id)/with-tracks"),
+            as: AlbumWithTracks.self
+        )
+        let tracks = (album.volumes ?? []).flatMap { $0 }.compactMap { $0 }
+
+        return AlbumDetail(
+            id: album.id ?? id,
+            title: album.title ?? "Без названия",
+            year: album.year,
+            trackCount: album.trackCount,
+            artworkURL: Artwork.url(from: album.coverUri),
+            artists: album.artists ?? [],
+            tracks: tracks
+        )
+    }
+
     // MARK: - Ротор
 
     /// `GET /rotor/station/{station}/tracks`. Сервер требует заголовок
@@ -171,5 +225,85 @@ struct PlaylistWithTracks: Decodable {
         title = try container.decodeIfPresent(String.self, forKey: .title)
         trackCount = container.decodeFlexibleIntIfPresent(forKey: .trackCount)
         tracks = try container.decodeIfPresent([Item].self, forKey: .tracks)
+    }
+}
+
+/// Ответ `GET /artists/{id}/brief-info`.
+///
+/// Живой ответ (Noize MC, `/artists/160970/brief-info`): `artist.id` —
+/// строка, `artist.counts` — числа, `popularTracks` — обычные `Track`,
+/// `albums` — обычные `Album`. `artist` может отсутствовать — тогда
+/// `APIManager` отдаёт `.missingResult`, а не пустой экран.
+struct ArtistBriefInfo: Decodable {
+    struct ArtistSummary: Decodable {
+        let id: Int?
+        let name: String?
+        let cover: Artist.Cover?
+        let counts: Counts?
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, cover, counts
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = container.decodeFlexibleIntIfPresent(forKey: .id)
+            name = try container.decodeIfPresent(String.self, forKey: .name)
+            cover = try container.decodeIfPresent(Artist.Cover.self, forKey: .cover)
+            counts = try container.decodeIfPresent(Counts.self, forKey: .counts)
+        }
+    }
+
+    struct Counts: Decodable {
+        let tracks: Int
+        let directAlbums: Int
+        let alsoAlbums: Int
+        let alsoTracks: Int
+
+        enum CodingKeys: String, CodingKey {
+            case tracks, directAlbums, alsoAlbums, alsoTracks
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            tracks = container.decodeFlexibleIntIfPresent(forKey: .tracks) ?? 0
+            directAlbums = container.decodeFlexibleIntIfPresent(forKey: .directAlbums) ?? 0
+            alsoAlbums = container.decodeFlexibleIntIfPresent(forKey: .alsoAlbums) ?? 0
+            alsoTracks = container.decodeFlexibleIntIfPresent(forKey: .alsoTracks) ?? 0
+        }
+    }
+
+    let artist: ArtistSummary?
+    let popularTracks: [Track]?
+    let albums: [Album]?
+}
+
+/// Ответ `GET /albums/{id}/with-tracks`.
+///
+/// Верхнеуровневого `tracks` у альбома нет: треки лежат в `volumes`
+/// (`[[Track]]`), причём элемент массива в теории может быть `null` —
+/// поэтому опционален и сам трек, и весь `volumes`.
+struct AlbumWithTracks: Decodable {
+    let id: Int?
+    let title: String?
+    let year: Int?
+    let trackCount: Int?
+    let coverUri: String?
+    let artists: [Artist]?
+    let volumes: [[Track?]]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, year, trackCount, coverUri, artists, volumes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = container.decodeFlexibleIntIfPresent(forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        year = container.decodeFlexibleIntIfPresent(forKey: .year)
+        trackCount = container.decodeFlexibleIntIfPresent(forKey: .trackCount)
+        coverUri = try container.decodeIfPresent(String.self, forKey: .coverUri)
+        artists = try container.decodeIfPresent([Artist].self, forKey: .artists)
+        volumes = try container.decodeIfPresent([[Track?]].self, forKey: .volumes)
     }
 }

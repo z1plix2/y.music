@@ -16,6 +16,9 @@ struct MainView: View {
     @StateObject private var likes: LikeStore
     @StateObject private var wave: WaveViewModel
     @State private var route: MainRoute?
+    /// Отложенный переход NowPlaying → артист: сначала закрываем плеер,
+    /// потом открываем артиста. Храним задачу, чтобы отменить её при уходе.
+    @State private var pendingRouteTask: Task<Void, Never>?
 
     @MainActor
     init(account: Account) {
@@ -65,6 +68,10 @@ struct MainView: View {
                 }
             }
         }
+        .onDisappear {
+            pendingRouteTask?.cancel()
+            pendingRouteTask = nil
+        }
         .task {
             // `configure` идемпотентен: повторный вход на экран не перетрёт
             // текущую очередь восстановленным состоянием.
@@ -77,13 +84,35 @@ struct MainView: View {
     private func destination(for route: MainRoute) -> some View {
         switch route {
         case .player:
-            NowPlayingView()
+            NowPlayingView(onOpenArtist: { artistID in
+                openArtist(artistID)
+            })
         case .liked:
             LikedTracksView(userID: account.uid)
         case .playlist(let playlist):
             PlaylistDetailView(playlist: playlist, userID: account.uid)
+        case .artist(let artistID):
+            ArtistDetailView(artistID: artistID)
+        case .album(let albumID):
+            AlbumDetailView(albumID: albumID)
         case .search:
             SearchView(userID: account.uid)
+        }
+    }
+
+    /// Закрываем полноэкранный плеер и открываем артиста отдельным sheet.
+    ///
+    /// 250 мс — длительность стандартной анимации dismiss на iOS. Пауза
+    /// нужна потому, что два `.sheet(item:)` подряд без неё на iOS 15
+    /// теряют второй переход. Задача отменяется в `.onDisappear`.
+    private func openArtist(_ artistID: Int) {
+        pendingRouteTask?.cancel()
+        route = nil
+
+        pendingRouteTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            route = .artist(artistID)
         }
     }
 
@@ -107,6 +136,8 @@ enum MainRoute: Identifiable {
     case player
     case liked
     case playlist(Playlist)
+    case artist(Int)
+    case album(Int)
     case search
 
     var id: String {
@@ -114,6 +145,8 @@ enum MainRoute: Identifiable {
         case .player: return "player"
         case .liked: return "liked"
         case .playlist(let playlist): return "playlist-\(playlist.id)"
+        case .artist(let artistID): return "artist-\(artistID)"
+        case .album(let albumID): return "album-\(albumID)"
         case .search: return "search"
         }
     }

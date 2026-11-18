@@ -10,6 +10,10 @@ struct NowPlayingView: View {
 
     @State private var scrubValue: Double?
 
+    /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
+    /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
+    var onOpenArtist: (Int) -> Void = { _ in }
+
     private var track: Track? { player.currentTrack }
 
     var body: some View {
@@ -94,12 +98,44 @@ struct NowPlayingView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
+            artistLabel
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var artistLabel: some View {
+        if let artistID = openableArtistID {
+            Button {
+                Haptics.selection()
+                onOpenArtist(artistID)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(track?.artistLine ?? "Выберите трек в каталоге")
+                        .font(.subheadline)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(tone.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle(scale: 0.97))
+            .accessibilityLabel("Открыть артиста")
+        } else {
             Text(track?.artistLine ?? "Выберите трек в каталоге")
                 .font(.subheadline)
                 .foregroundStyle(tone.secondary)
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    /// У восстановленных треков (история) id артиста равен 0 — для него
+    /// нет ручки, поэтому имя остаётся обычным текстом.
+    private var openableArtistID: Int? {
+        guard let id = track?.artists?.first?.id, id > 0 else { return nil }
+        return id
     }
 
     // MARK: - Прогресс

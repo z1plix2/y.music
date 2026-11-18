@@ -15,6 +15,13 @@ protocol MusicCatalogProviding: Sendable {
     /// Возвращает также `total`, чтобы экран мог честно предупредить
     /// об усечённом ответе.
     func playlistTracks(userID: Int, kind: Int) async throws -> PlaylistTracks
+
+    /// Артист: имя, аватар, счётчики, популярные треки и выборка альбомов
+    /// (`/artists/{id}/brief-info`).
+    func artistDetail(id: Int) async throws -> ArtistDetail
+
+    /// Альбом с треками (`/albums/{id}/with-tracks`).
+    func albumDetail(id: Int) async throws -> AlbumDetail
 }
 
 /// Главная одним ответом. `likedConsumed` и `hasMoreLiked` считаются по списку
