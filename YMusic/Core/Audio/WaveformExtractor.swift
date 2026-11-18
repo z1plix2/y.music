@@ -74,9 +74,15 @@ actor WaveformExtractor {
         needsSpectrum: Bool
     ) async throws -> AudioAnalysis {
         let cachedWaveform = memory[track.id] ?? storedWaveform(for: track.id)
-        let cachedSpectrum = needsSpectrum
-            ? (spectrumMemory[track.id] ?? await SpectrumCache.shared.load(track.id))
-            : nil
+
+        var cachedSpectrum: SpectrumData?
+        if needsSpectrum {
+            if let inMemory = spectrumMemory[track.id] {
+                cachedSpectrum = inMemory
+            } else {
+                cachedSpectrum = await SpectrumCache.shared.load(track.id)
+            }
+        }
 
         if let cachedWaveform, !needsSpectrum || cachedSpectrum != nil {
             memory[track.id] = cachedWaveform
