@@ -141,7 +141,7 @@ struct RootView: View {
             return
         }
 
-        Task {
+        Task { @MainActor in
             do {
                 let tracks = try await APIManager.shared.tracks(ids: [trackID])
                 guard let track = tracks.first else {

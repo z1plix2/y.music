@@ -186,7 +186,7 @@ struct NowPlayingView: View {
         guard !isPreparingShare else { return }
         isPreparingShare = true
 
-        Task {
+        Task { @MainActor in
             let image = await ShareCardRenderer.image(for: track)
             isPreparingShare = false
             shareImage = ShareImage(image: image)

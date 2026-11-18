@@ -153,7 +153,7 @@ struct MainView: View {
             return
         }
 
-        Task {
+        Task { @MainActor in
             do {
                 let tracks = try await APIManager.shared.tracks(ids: likedIDs)
                 guard !tracks.isEmpty else {

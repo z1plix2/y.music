@@ -270,13 +270,14 @@ struct ShazamSheet: View {
     private func start() {
         foundTrack = nil
         searchFailed = false
-        Task { await recognizer.start() }
+        Task { @MainActor in await recognizer.start() }
     }
 
     private func retrySearch(_ match: ShazamRecognizer.Match) {
-        Task { await searchInYandex(match) }
+        Task { @MainActor in await searchInYandex(match) }
     }
 
+    @MainActor
     private func searchInYandex(_ match: ShazamRecognizer.Match) async {
         isSearching = true
         searchFailed = false
