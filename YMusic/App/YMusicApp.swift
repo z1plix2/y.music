@@ -9,9 +9,22 @@ extension Notification.Name {
 
 @main
 struct YMusicApp: App {
+    /// Онбординг показывается один раз; после него открывается обычный корень.
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            if hasSeenOnboarding {
+                RootView()
+                    .transition(.opacity)
+            } else {
+                OnboardingView {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        hasSeenOnboarding = true
+                    }
+                }
+                .transition(.opacity)
+            }
         }
     }
 }
