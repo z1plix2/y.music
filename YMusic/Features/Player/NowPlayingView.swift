@@ -34,6 +34,8 @@ struct NowPlayingView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 22) {
                     artwork
+                    WaveVisualizer(isPlaying: player.isPlaying)
+                        .frame(maxWidth: 320)
                     titles
                     progress
                     controls
