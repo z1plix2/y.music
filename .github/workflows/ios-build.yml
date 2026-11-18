@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 # Новый пуш в main отменяет предыдущую сборку — не держим залипший раннер.
 concurrency:
@@ -52,7 +53,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee "$RUNNER_TEMP/build.log"
 
       - name: Package unsigned .ipa
         run: |
@@ -72,3 +73,29 @@ jobs:
           name: YMusic-ipa
           path: ${{ runner.temp }}/YMusic.ipa
           if-no-files-found: error
+
+      # ВРЕМЕННО: публикует ошибки сборки в issue, чтобы их можно было прочитать.
+      - name: Publish failure log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          LOG="$RUNNER_TEMP/build.log"
+          OUT="$RUNNER_TEMP/issue.md"
+          {
+            echo "Сборка упала на коммите \`$GITHUB_SHA\`."
+            echo
+            echo '```'
+            if [ -f "$LOG" ]; then
+              grep -nE "error:|error :|BUILD FAILED|xcodebuild: error|The following build commands failed|fatal error|Undefined symbols" "$LOG" | tail -120
+              echo "---- tail ----"
+              tail -80 "$LOG"
+            else
+              echo "build.log не найден"
+            fi
+            echo '```'
+          } > "$OUT"
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "CI: build failed on $GITHUB_SHA" \
+            --body-file "$OUT" || true
