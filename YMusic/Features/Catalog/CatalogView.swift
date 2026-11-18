@@ -7,11 +7,13 @@ import SwiftUI
 /// не знает, как показывать экраны (sheet или push) — это решает `MainView`.
 struct CatalogView: View {
     @ObservedObject var viewModel: CatalogViewModel
+    /// Значение, а не `@EnvironmentObject`: иначе каждый тик прогресса
+    /// перерисовывал бы все секции каталога.
+    var player: AudioPlayer
 
     var onOpenLiked: () -> Void = {}
     var onOpenPlaylist: (Playlist) -> Void = { _ in }
 
-    @EnvironmentObject private var player: AudioPlayer
     @Environment(\.contentTone) private var tone
 
     var body: some View {
@@ -114,18 +116,14 @@ struct CatalogView: View {
     }
 
     private func trackRow(_ track: Track) -> some View {
-        let isCurrent = player.currentTrack?.id == track.id
-        let queue = viewModel.likedTracks
-
-        return TrackRowView(
+        CatalogTrackRow(
             track: track,
-            isCurrent: isCurrent,
-            isPlaying: isCurrent && player.isPlaying,
-            onTap: { player.play(track: track, in: queue) }
+            queue: viewModel.likedTracks,
+            player: player,
+            onAppearLoadMore: {
+                Task { await viewModel.loadMoreLikedIfNeeded(currentItemID: "t-\(track.id)") }
+            }
         )
-        .onAppear {
-            Task { await viewModel.loadMoreLikedIfNeeded(currentItemID: "t-\(track.id)") }
-        }
     }
 
     // MARK: - Состояния
@@ -177,6 +175,29 @@ struct CatalogView: View {
         RoundedRectangle(cornerRadius: height / 2, style: .continuous)
             .fill(Color.white.opacity(0.12))
             .frame(width: width, height: height)
+    }
+}
+
+/// Строка каталога со своей подпиской на подсветку. Раньше `isCurrent`
+/// считался в `CatalogView`, и один тик плеера перерисовывал весь список.
+private struct CatalogTrackRow: View {
+    let track: Track
+    let queue: [Track]
+    let player: AudioPlayer
+    let onAppearLoadMore: () -> Void
+
+    @ObservedObject private var highlight = PlaybackHighlight.shared
+
+    var body: some View {
+        let isCurrent = highlight.trackID == track.id
+
+        TrackRowView(
+            track: track,
+            isCurrent: isCurrent,
+            isPlaying: isCurrent && highlight.isPlaying,
+            onTap: { player.play(track: track, in: queue) }
+        )
+        .onAppear(perform: onAppearLoadMore)
     }
 }
 

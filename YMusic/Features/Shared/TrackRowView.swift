@@ -15,7 +15,6 @@ struct TrackRowView: View {
     /// Вызывается после успешного снятия лайка: «Мне нравится» убирает строку.
     var onUnlike: ((Track) -> Void)? = nil
 
-    @EnvironmentObject private var likes: LikeStore
     @EnvironmentObject private var player: AudioPlayer
     @Environment(\.contentTone) private var tone
 
@@ -56,15 +55,7 @@ struct TrackRowView: View {
             .accessibilityLabel("\(track.title), \(track.artistLine)")
 
             if showsLike {
-                LikeButton(
-                    isLiked: likes.isLiked(track.id),
-                    isPending: likes.isPending(track.id)
-                ) {
-                    Task {
-                        let nowLiked = await likes.toggle(track)
-                        if !nowLiked { onUnlike?(track) }
-                    }
-                }
+                RowLikeButton(track: track, onUnlike: onUnlike)
             }
 
             Text(track.durationText)
@@ -108,14 +99,7 @@ struct TrackRowView: View {
             }
         }
 
-        Button {
-            Task { await likes.toggle(track) }
-        } label: {
-            Label(
-                likes.isLiked(track.id) ? "Убрать из лайков" : "В лайки",
-                systemImage: likes.isLiked(track.id) ? "heart.slash" : "heart"
-            )
-        }
+        TrackLikeMenuButton(track: track)
 
         Button {
             prepareShare()
@@ -162,5 +146,50 @@ struct TrackRowView: View {
         }
         .frame(width: 52, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+// MARK: - Лайк
+
+/// Сердечко строки. Подписка на `LikeStore` живёт здесь, а не в
+/// `TrackRowView`: тап по лайку обновляет только кнопку, а не строку
+/// с обложкой и текстами.
+private struct RowLikeButton: View {
+    let track: Track
+    var onUnlike: ((Track) -> Void)?
+
+    @EnvironmentObject private var likes: LikeStore
+
+    var body: some View {
+        LikeButton(
+            isLiked: likes.isLiked(track.id),
+            isPending: likes.isPending(track.id)
+        ) {
+            Task {
+                let nowLiked = await likes.toggle(track)
+                if !nowLiked {
+                    onUnlike?(track)
+                }
+            }
+        }
+    }
+}
+
+/// Пункт контекстного меню: подписывается отдельно, чтобы текст и иконка
+/// были актуальны без перерисовки всей строки.
+private struct TrackLikeMenuButton: View {
+    let track: Track
+
+    @EnvironmentObject private var likes: LikeStore
+
+    var body: some View {
+        Button {
+            Task { _ = await likes.toggle(track) }
+        } label: {
+            Label(
+                likes.isLiked(track.id) ? "Убрать из лайков" : "В лайки",
+                systemImage: likes.isLiked(track.id) ? "heart.slash" : "heart"
+            )
+        }
     }
 }

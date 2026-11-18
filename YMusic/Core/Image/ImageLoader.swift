@@ -13,16 +13,29 @@ import UIKit
 final class ImageLoader {
     static let shared = ImageLoader()
 
-    private let cache = NSCache<NSURL, UIImage>()
+    private let cache = NSCache<NSString, UIImage>()
     private let logger = Logger(subsystem: "com.example.ymusic", category: "ImageLoader")
 
     init() {
         cache.countLimit = 300
+        // 96 МБ при обложке 300×300×4 (≈360 КБ) — это ≈270 картинок.
         cache.totalCostLimit = 96 * 1024 * 1024
     }
 
+    /// Ключ без query и fragment: Яндекс отдаёт одну и ту же обложку
+    /// разными URL (`?size=200` / `?size=400`), а декодируем мы всё равно
+    /// в один размер — держать копии в кэше незачем.
+    private func cacheKey(for url: URL) -> NSString {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString as NSString
+        }
+        components.query = nil
+        components.fragment = nil
+        return (components.url?.absoluteString ?? url.absoluteString) as NSString
+    }
+
     func cachedImage(for url: URL) -> UIImage? {
-        cache.object(forKey: url as NSURL)
+        cache.object(forKey: cacheKey(for: url))
     }
 
     /// Загрузка в задаче вызывающего: уход с экрана отменяет `URLSession`
@@ -52,7 +65,11 @@ final class ImageLoader {
             // готовый цвет из кэша ColorExtractor без второго запроса.
             _ = await ColorExtractor.shared.palette(forKey: url.absoluteString, fromData: data)
 
-            cache.setObject(image, forKey: url as NSURL, cost: data.count)
+            // Cost — декодированный размер, а не вес JPEG: UIImage в памяти
+            // занимает w×h×4 байта, иначе лимит срабатывает слишком поздно.
+            let cost = image.cgImage.map { $0.bytesPerRow * $0.height }
+                ?? Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+            cache.setObject(image, forKey: cacheKey(for: url), cost: max(cost, 1))
             return image
         } catch is CancellationError {
             return nil
