@@ -19,6 +19,16 @@ settings:
     ENABLE_BITCODE: "NO"
     SWIFT_STRICT_CONCURRENCY: minimal
 
+schemes:
+  YMusic:
+    build:
+      targets:
+        YMusic: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   YMusic:
     type: application

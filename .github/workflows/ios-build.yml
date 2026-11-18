@@ -2,13 +2,33 @@ name: Build YMusic
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "YMusic/**"
+      - "project.yml"
+      - ".github/workflows/ios-build.yml"
+
+permissions:
+  contents: read
+
+# Новый пуш в main отменяет предыдущую сборку — не держим залипший раннер.
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcodegen --version || true
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -16,10 +36,39 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build for iOS Simulator
+      - name: Show schemes
+        run: xcodebuild -list -project YMusic.xcodeproj
+
+      # Сборка под устройство (arm64), без подписи: для TrollStore.
+      - name: Build (device, unsigned)
         run: |
+          set -o pipefail
           xcodebuild \
             -project YMusic.xcodeproj \
             -scheme YMusic \
-            -destination 'platform=iOS Simulator,name=iPhone 11' \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
             build
+
+      - name: Package unsigned .ipa
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphoneos/YMusic.app"
+          test -d "$APP" || { echo "app not found at $APP"; exit 1; }
+          rm -rf "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/YMusic.ipa"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          /usr/bin/zip -qry YMusic.ipa Payload
+          ls -lh YMusic.ipa
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: YMusic-ipa
+          path: ${{ runner.temp }}/YMusic.ipa
+          if-no-files-found: error
