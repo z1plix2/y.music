@@ -104,6 +104,7 @@ struct MiniPlayerProgressBar: View {
                 Capsule()
                     .fill(tone.primary.opacity(0.75))
                     .frame(width: max(2, proxy.size.width * fraction))
+                    .animation(.linear(duration: 0.5), value: player.currentTime)
             }
         }
         .frame(height: 2)
