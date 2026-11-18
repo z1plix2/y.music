@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import OSLog
+import UIKit
 
 /// Бесконечная «Моя волна» поверх сессий ротора.
 ///
@@ -39,11 +40,19 @@ final class WaveSessionController: ObservableObject {
     private var startTask: Task<Void, Never>?
     private var refillTask: Task<Void, Never>?
 
+    /// В фоне волна не начинает сессии, не отправляет фидбэк и грузит
+    /// не больше `backgroundTopUpLimit` треков: экономия батареи и трафика,
+    /// при этом очередь не обрывается, если трек доиграл с выключенным экраном.
+    private var isInBackground = false
+    private var lifecycleCancellables: Set<AnyCancellable> = []
+
     private var lastTrack: Track?
     private var lastTime: Double = 0
 
     /// Сколько треков остаётся до конца очереди, когда пора просить партию.
     private static let refillThreshold = 3
+    /// Сколько треков максимум догружаем из фона.
+    private static let backgroundTopUpLimit = 3
 
     init(
         provider: any RotorSessionProviding = YandexRotorProvider.shared,
@@ -52,6 +61,41 @@ final class WaveSessionController: ObservableObject {
         self.provider = provider
         self.store = store
         self.settings = store.load()
+
+        NotificationCenter.default
+            .publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in self?.enterBackground() }
+            .store(in: &lifecycleCancellables)
+
+        NotificationCenter.default
+            .publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in self?.enterForeground() }
+            .store(in: &lifecycleCancellables)
+    }
+
+    // MARK: - Жизненный цикл приложения
+
+    private func enterBackground() {
+        guard !isInBackground else { return }
+        isInBackground = true
+
+        // Старт сессии и ожидающая догрузка — обычные сетевые запросы,
+        // в фоне они не нужны. Лимит догрузки проверяется при следующем
+        // `refillIfNeeded()`.
+        startTask?.cancel()
+        startTask = nil
+        isStarting = false
+        refillTask?.cancel()
+        refillTask = nil
+    }
+
+    private func enterForeground() {
+        guard isInBackground else { return }
+        isInBackground = false
+
+        // В фоне очередь могла опустеть: догружаем сразу, не дожидаясь
+        // смены трека.
+        refillIfNeeded()
     }
 
     // MARK: - Подключение к плееру
@@ -82,7 +126,7 @@ final class WaveSessionController: ObservableObject {
     // MARK: - Управление
 
     func start(from track: Track? = nil) {
-        guard !isStarting else { return }
+        guard !isStarting, !isInBackground else { return }
 
         failure = nil
         isStarting = true
@@ -214,7 +258,9 @@ final class WaveSessionController: ObservableObject {
                     return
                 }
 
-                let tracks = batch.tracks
+                let tracks = self.isInBackground
+                    ? Array(batch.tracks.prefix(Self.backgroundTopUpLimit))
+                    : batch.tracks
                 guard !tracks.isEmpty else { return }
 
                 self.currentBatchID = batch.batchId ?? self.currentBatchID
@@ -238,7 +284,8 @@ final class WaveSessionController: ObservableObject {
     // MARK: - Обратная связь
 
     private func send(_ type: RotorFeedbackType, track: Track, seconds: Double?) {
-        guard let sessionID else { return }
+        // Фидбэк — сеть: в фоне не отправляем, он не влияет на текущую очередь.
+        guard let sessionID, !isInBackground else { return }
         let trackID = Self.identifier(track)
         let batchID = batchByTrack[track.id] ?? currentBatchID
 

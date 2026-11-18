@@ -15,7 +15,6 @@ struct TrackRowView: View {
     /// Вызывается после успешного снятия лайка: «Мне нравится» убирает строку.
     var onUnlike: ((Track) -> Void)? = nil
 
-    @EnvironmentObject private var player: AudioPlayer
     @Environment(\.contentTone) private var tone
 
     @State private var sharePayload: SharePayload?
@@ -64,52 +63,17 @@ struct TrackRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .contextMenu { contextMenuContent }
+        .contextMenu {
+            RowContextMenu(
+                track: track,
+                isPreparingShare: isPreparingShare,
+                onOpenArtist: onOpenArtist,
+                onShare: prepareShare
+            )
+        }
         .sheet(item: $sharePayload) { payload in
             ActivityView(items: payload.items)
         }
-    }
-
-    // MARK: - Контекстное меню
-
-    @ViewBuilder
-    private var contextMenuContent: some View {
-        Button {
-            Haptics.selection()
-            player.playNext(track)
-        } label: {
-            Label("Играть следующим", systemImage: "text.line.first.and.arrowtriangle.forward")
-        }
-
-        Button {
-            Haptics.selection()
-            player.addToQueue(track)
-        } label: {
-            Label("В очередь", systemImage: "text.badge.plus")
-        }
-
-        Divider()
-
-        if let onOpenArtist {
-            Button {
-                Haptics.selection()
-                onOpenArtist()
-            } label: {
-                Label("К артисту", systemImage: "person")
-            }
-        }
-
-        TrackLikeMenuButton(track: track)
-
-        Button {
-            prepareShare()
-        } label: {
-            Label(
-                isPreparingShare ? "Готовим открытку..." : "Поделиться",
-                systemImage: "square.and.arrow.up"
-            )
-        }
-        .disabled(isPreparingShare)
     }
 
     private func prepareShare() {
@@ -146,6 +110,58 @@ struct TrackRowView: View {
         }
         .frame(width: 52, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+// MARK: - Контекстное меню
+
+/// Меню вынесено в отдельную структуру: `@EnvironmentObject player` здесь
+/// живёт только пока меню открыто, а не на каждой строке длинного списка.
+private struct RowContextMenu: View {
+    let track: Track
+    let isPreparingShare: Bool
+    var onOpenArtist: (() -> Void)?
+    var onShare: () -> Void
+
+    @EnvironmentObject private var player: AudioPlayer
+
+    var body: some View {
+        Button {
+            Haptics.selection()
+            player.playNext(track)
+        } label: {
+            Label("Играть следующим", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+
+        Button {
+            Haptics.selection()
+            player.addToQueue(track)
+        } label: {
+            Label("В очередь", systemImage: "text.badge.plus")
+        }
+
+        Divider()
+
+        if let onOpenArtist {
+            Button {
+                Haptics.selection()
+                onOpenArtist()
+            } label: {
+                Label("К артисту", systemImage: "person")
+            }
+        }
+
+        TrackLikeMenuButton(track: track)
+
+        Button {
+            onShare()
+        } label: {
+            Label(
+                isPreparingShare ? "Готовим открытку..." : "Поделиться",
+                systemImage: "square.and.arrow.up"
+            )
+        }
+        .disabled(isPreparingShare)
     }
 }
 

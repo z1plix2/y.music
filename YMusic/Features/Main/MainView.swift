@@ -40,11 +40,7 @@ struct MainView: View {
     }
 
     var body: some View {
-        DynamicBackground(
-            imageURL: backgroundImageURL,
-            cacheKey: backgroundKey,
-            fallback: .brand
-        ) {
+        MainBackgroundHost(player: player, catalog: catalog) {
             ZStack(alignment: .bottom) {
                 MainScrollContent(
                     account: account,
@@ -207,16 +203,37 @@ struct MainView: View {
         }
     }
 
-    // MARK: - Фон
-
-    private var backgroundImageURL: URL? {
-        player.currentTrack?.artworkURL ?? catalog.heroArtwork?.url
     }
 
-    private var backgroundKey: String {
-        player.currentTrack?.artworkURL?.absoluteString
+// MARK: - Фон
+
+/// Фон вынесен в отдельную структуру: `player.currentTrack` и `heroArtwork`
+/// читаются здесь, поэтому смена трека не перерисовывает весь `MainView`.
+private struct MainBackgroundHost<Content: View>: View {
+    let player: AudioPlayer
+    @ObservedObject var catalog: CatalogViewModel
+    let content: Content
+
+    init(player: AudioPlayer, catalog: CatalogViewModel, @ViewBuilder content: () -> Content) {
+        self.player = player
+        self.catalog = catalog
+        self.content = content()
+    }
+
+    var body: some View {
+        let trackURL = player.currentTrack?.artworkURL
+        let heroURL = catalog.heroArtwork?.url
+        let key = trackURL?.absoluteString
             ?? catalog.heroArtwork?.key
-            ?? "account-\(account.uid)"
+            ?? "brand"
+
+        DynamicBackground(
+            imageURL: trackURL ?? heroURL,
+            cacheKey: key,
+            fallback: .brand
+        ) {
+            content
+        }
     }
 }
 

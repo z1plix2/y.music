@@ -46,12 +46,22 @@ final class AuthService: NSObject, ObservableObject {
 
     /// Вызывается один раз при старте: если токен уже в Keychain,
     /// сразу подтягиваем аккаунт, без экрана логина.
+    ///
+    /// Прошлый аккаунт лежит в `UserDefaults`: сплэш не ждёт сеть, а
+    /// `/account/about` догружается в фоне и просто уточняет данные.
     func restore() async {
         guard await api.isAuthorized else {
+            clearCachedAccount()
             state = .signedOut
             return
         }
-        await refreshAccount()
+
+        if let cached = cachedAccount() {
+            state = .signedIn(cached)
+            await refreshAccount(keepingCachedSession: true)
+        } else {
+            await refreshAccount()
+        }
     }
 
     /// Завершает вход: сохраняет токен, полученный из web-view, и загружает
@@ -72,6 +82,7 @@ final class AuthService: NSObject, ObservableObject {
 
     func signOut() async {
         await api.signOut()
+        clearCachedAccount()
         errorMessage = nil
         state = .signedOut
     }
@@ -88,20 +99,44 @@ final class AuthService: NSObject, ObservableObject {
 
     // MARK: - Сессия
 
-    private func refreshAccount() async {
+    private func refreshAccount(keepingCachedSession: Bool = false) async {
         do {
             let account = try await api.accountAbout()
+            storeCachedAccount(account)
             state = .signedIn(account)
         } catch {
             if let apiError = error as? APIError, apiError.requiresReauthentication {
                 await api.signOut()
+                clearCachedAccount()
                 state = .signedOut
                 errorMessage = "Сессия истекла — войдите снова."
+            } else if keepingCachedSession, case .signedIn = state {
+                // Сеть пропала, но токен жив: остаёмся на кэшированном
+                // аккаунте вместо выкидывания на экран логина.
+                errorMessage = nil
             } else {
                 state = .signedOut
                 errorMessage = message(for: error)
             }
         }
+    }
+
+    // MARK: - Кэш аккаунта
+
+    private var cacheKey: String { "auth.cachedAccount.v1" }
+
+    private func cachedAccount() -> Account? {
+        guard let data = UserDefaults.standard.data(forKey: cacheKey) else { return nil }
+        return try? JSONDecoder().decode(Account.self, from: data)
+    }
+
+    private func storeCachedAccount(_ account: Account) {
+        guard let data = try? JSONEncoder().encode(account) else { return }
+        UserDefaults.standard.set(data, forKey: cacheKey)
+    }
+
+    private func clearCachedAccount() {
+        UserDefaults.standard.removeObject(forKey: cacheKey)
     }
 
     // MARK: - Ошибки

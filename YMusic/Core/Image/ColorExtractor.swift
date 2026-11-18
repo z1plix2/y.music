@@ -116,6 +116,10 @@ actor ColorExtractor {
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
 
     private var cache: [String: ColorPalette] = [:]
+    /// Порядок вставки для LRU-подобного вытеснения: при переполнении
+    /// убираем самую старую запись, а не сбрасываем весь кэш (иначе на
+    /// 201-й обложке палитры пересчитывались заново для всего экрана).
+    private var cacheOrder: [String] = []
     private var inFlight: [String: Task<ColorPalette?, Never>] = [:]
     private let cacheLimit = 200
 
@@ -180,15 +184,21 @@ actor ColorExtractor {
 
     func clearCache() {
         cache.removeAll(keepingCapacity: false)
+        cacheOrder.removeAll(keepingCapacity: false)
     }
 
     // MARK: - Внутреннее
 
     private func store(_ palette: ColorPalette, forKey key: String) {
-        if cache.count >= cacheLimit {
-            cache.removeAll(keepingCapacity: true)
+        if cache[key] == nil {
+            cacheOrder.append(key)
         }
         cache[key] = palette
+
+        while cacheOrder.count > cacheLimit {
+            let oldest = cacheOrder.removeFirst()
+            cache.removeValue(forKey: oldest)
+        }
     }
 
     private func extract(from url: URL) async -> ColorPalette? {
