@@ -147,6 +147,7 @@ final class AudioPlayer: ObservableObject {
         isConfigured = true
         recents = stateStore.loadRecents(userID: userID).map(\.track)
         ListeningStatsStore.shared.configure(userID: userID)
+        PlayHistoryStore.shared.configure(userID: userID)
         restoreQueue(userID: userID)
     }
 
@@ -776,6 +777,7 @@ private func takePrefetchedURL(for trackID: Int) -> URL? {
         isConfigured = false
         recents = []
         ListeningStatsStore.shared.detach()
+        PlayHistoryStore.shared.detach()
     }
 
     // MARK: - Восстановление
@@ -1353,6 +1355,7 @@ private func startBeatHaptics(for url: URL) {
 
         recents = stored.map(\.track)
         stateStore.saveRecents(stored, userID: userID)
+        PlayHistoryStore.shared.record(track, userID: userID)
     }
 
     // MARK: - Аудиосессия

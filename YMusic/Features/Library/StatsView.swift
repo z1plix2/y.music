@@ -5,9 +5,12 @@ import SwiftUI
 /// название и артиста: отдельный справочник не нужен).
 struct StatsView: View {
     @EnvironmentObject private var player: AudioPlayer
+    @EnvironmentObject private var likes: LikeStore
     @EnvironmentObject private var stats: ListeningStatsStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.contentTone) private var tone
+
+    @State private var historyFilter: HistoryFilter?
 
     var body: some View {
         ZStack {
@@ -22,6 +25,7 @@ struct StatsView: View {
 
                     topArtists
                     topTracks
+                    historyCard
 
                     if player.recents.isEmpty {
                         EmptyStateCard(
@@ -41,6 +45,9 @@ struct StatsView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 40)
             }
+        }
+        .sheet(item: $historyFilter) { filter in
+            HistoryView(initialFilter: filter)
         }
     }
 
@@ -136,7 +143,7 @@ struct StatsView: View {
         let tracks = topTracksList()
         return GlassCard(cornerRadius: 26, padding: 20) {
             VStack(alignment: .leading, spacing: 12) {
-                sectionTitle("Топ треков")
+                sectionHeader("Топ треков", action: .top)
 
                 if tracks.isEmpty {
                     emptyLine("Пока нет данных")
@@ -172,7 +179,86 @@ struct StatsView: View {
         }
     }
 
+    // MARK: - История
+
+    /// Три входа в умные списки — история, топ и забытое. «Забытое»
+    /// показываем только когда лайков достаточно: иначе десяток лайков
+    /// целиком выглядел бы «забытым».
+    private var historyCard: some View {
+        GlassCard(cornerRadius: 26, padding: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader("История", action: .all)
+
+                Text("Что и когда вы слушали: по дням, по частоте, и что давно не включали.")
+                    .font(.footnote)
+                    .foregroundStyle(tone.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if likes.likedIDs.count >= 20 {
+                    historyLink(
+                        title: "Забытое",
+                        subtitle: "Не играло больше 30 дней",
+                        action: .forgotten
+                    )
+                }
+            }
+        }
+    }
+
+    private func historyLink(
+        title: String,
+        subtitle: String,
+        action: HistoryFilter
+    ) -> some View {
+        Button {
+            Haptics.selection()
+            historyFilter = action
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(tone.primary)
+
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(tone.tertiary)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(tone.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Мелочи
+
+    private func sectionHeader(_ text: String, action: HistoryFilter) -> some View {
+        HStack(spacing: 8) {
+            sectionTitle(text)
+
+            Spacer(minLength: 8)
+
+            Button {
+                Haptics.selection()
+                historyFilter = action
+            } label: {
+                HStack(spacing: 3) {
+                    Text("Показать все")
+                        .font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundStyle(tone.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
