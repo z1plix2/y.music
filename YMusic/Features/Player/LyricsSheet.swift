@@ -97,7 +97,7 @@ struct LyricsSheet: View {
                                 )
                             )
                             .foregroundStyle(
-                                line.id == currentLineID ? tone.primary : tone.tertiary
+                                line.id == currentLineID ? tone.primary : tone.primary.opacity(0.5)
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
@@ -116,6 +116,7 @@ struct LyricsSheet: View {
             }
             .onChange(of: currentLineID) { id in
                 guard let id else { return }
+                Haptics.selection()
                 withAnimation(.easeInOut(duration: 0.35)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
