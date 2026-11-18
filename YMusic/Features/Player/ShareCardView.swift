@@ -199,8 +199,8 @@ struct ActivityView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
-/// `UIImage` не `Identifiable` — обёртка для `.sheet(item:)`.
-struct ShareImage: Identifiable {
+/// `[Any]` для `.sheet(item:)`: картинка или URL видео.
+struct SharePayload: Identifiable {
     let id = UUID()
-    let image: UIImage
+    let items: [Any]
 }

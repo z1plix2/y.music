@@ -86,6 +86,10 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.deviceDidShakeNotification)) { _ in
             shakeToShuffle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openNowPlaying)) { _ in
+            guard player.currentTrack != nil else { return }
+            route = .player
+        }
         .overlay(alignment: .top) {
             if let toast {
                 Text(toast)

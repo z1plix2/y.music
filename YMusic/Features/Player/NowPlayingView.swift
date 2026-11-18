@@ -12,8 +12,11 @@ struct NowPlayingView: View {
     @State private var scrubValue: Double?
     @StateObject private var shazam = ShazamRecognizer()
     @State private var isShazamPresented = false
-    @State private var shareImage: ShareImage?
+    @State private var sharePayload: SharePayload?
     @State private var isPreparingShare = false
+    @State private var showVideoError = false
+    @State private var likeBurstToken = 0
+    @StateObject private var videoRenderer = ShareVideoRenderer()
     /// Плеер глушим на время распознавания: микрофон не должен слышать
     /// наш же трек. Возвращаем только если пользователь не включил другой.
     @State private var resumeAfterShazam = false
@@ -47,8 +50,30 @@ struct NowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: isShazamPresented)
-        .sheet(item: $shareImage) { item in
-            ActivityView(items: [item.image])
+        .overlay(alignment: .top) {
+            if videoRenderer.isRendering {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(.white)
+
+                    Text("Готовим видео… \(Int(videoRenderer.progress * 100))%")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background { Capsule().fill(Color.black.opacity(0.55)) }
+                .padding(.top, 56)
+                .transition(.opacity)
+            }
+        }
+        .sheet(item: $sharePayload) { item in
+            ActivityView(items: item.items)
+        }
+        .alert("Видео не готово", isPresented: $showVideoError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(videoRenderer.failure ?? "Попробуйте ещё раз.")
         }
     }
 
@@ -59,8 +84,14 @@ struct NowPlayingView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 22) {
                     artwork
-                    WaveVisualizer(isPlaying: player.isPlaying)
-                        .frame(maxWidth: 320)
+                    WaveVisualizer(
+                        isPlaying: player.isPlaying,
+                        height: 64,
+                        artworkURL: track?.artworkURL,
+                        trackID: track?.id,
+                        likeToken: likeBurstToken
+                    )
+                    .frame(maxWidth: 320)
                     titles
                     progress
                     controls
@@ -95,6 +126,7 @@ struct NowPlayingView: View {
             Spacer()
 
             HStack(spacing: 8) {
+                videoButton
                 shareButton
 
                 GlassIconButton("mic", label: "Распознать трек") {
@@ -163,6 +195,60 @@ struct NowPlayingView: View {
         return Int(ceil(remaining / 60))
     }
 
+    /// Видео-открытка: рендер идёт секунды, поэтому на кнопке и в оверлее
+/// виден прогресс, а плеер остаётся отзывчивым.
+    @ViewBuilder
+    private var videoButton: some View {
+        if let track {
+            Button {
+                Haptics.light()
+                prepareVideo(track)
+            } label: {
+                ZStack {
+                    if videoRenderer.isRendering {
+                        ProgressView()
+                            .tint(tone.primary)
+                    } else {
+                        Image(systemName: "film")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(tone.primary)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .background { Circle().fill(Color.white.opacity(0.08)) }
+                .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                }
+            }
+            .buttonStyle(PressableStyle(scale: 0.9))
+            .disabled(videoRenderer.isRendering || isPreparingShare)
+            .accessibilityLabel("Поделиться видео")
+        }
+    }
+
+    private func prepareVideo(_ track: Track) {
+        guard !videoRenderer.isRendering else { return }
+
+        let asset = player.currentExportAsset
+        let start = player.currentTime
+
+        Task { @MainActor in
+            do {
+                let url = try await videoRenderer.render(
+                    track: track,
+                    asset: asset,
+                    startTime: start
+                )
+                sharePayload = SharePayload(items: [url])
+            } catch is CancellationError {
+                return
+            } catch {
+                // Текст причины уже в videoRenderer.failure и в логе.
+                showVideoError = true
+            }
+        }
+    }
+
     /// Открытка рендерится в фоне: загрузка обложки и палитры может занять
     /// кадр-другой, поэтому на кнопке виден прогресс, а не «залипание».
     @ViewBuilder
@@ -201,7 +287,7 @@ struct NowPlayingView: View {
         Task { @MainActor in
             let image = await ShareCardRenderer.image(for: track)
             isPreparingShare = false
-            shareImage = ShareImage(image: image)
+            sharePayload = SharePayload(items: [image])
         }
     }
 
@@ -423,6 +509,7 @@ struct NowPlayingView: View {
                             // Лайк уходит и в сессию волны: ротор учитывает
                             // его в подборе следующих треков.
                             waveSession.like(track)
+                            likeBurstToken += 1
                         }
                     }
                 }

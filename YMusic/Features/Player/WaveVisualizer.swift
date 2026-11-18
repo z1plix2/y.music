@@ -1,66 +1,186 @@
 import SwiftUI
 
-/// Визуализатор под обложкой в полноэкранном плеере.
+/// Визуализатор «частицы» под обложкой.
 ///
 /// Настоящий FFT недоступен: `AVPlayer` не отдаёт аудиобуфер без
 /// `AVAudioEngine`/`MTAudioProcessingTap`, а переделывать звуковой тракт
-/// ради картинки — не та цена. Поэтому это честная анимация: полосы
-/// качаются от суммы двух синусов, пока трек играет, и замирают на паузе.
+/// ради картинки — не та цена. Поэтому частицы живут по своей формуле:
+/// поднимаются снизу, дрейфуют вбок и затухают. На паузе `TimelineView`
+/// останавливает кадры совсем — картинка замирает и не жжёт CPU.
 ///
-/// `TimelineView` с `paused: !isPlaying` останавливает обновления полностью:
-/// на паузе кадров нет, CPU не тратится. Частота — 30 FPS.
+/// Время кадра можно передать снаружи (`fixedTime`) — так видео-открытка
+/// рендерит кадры вразнобой, без живой анимации.
 struct WaveVisualizer: View {
     var isPlaying: Bool
-    var barCount: Int = 28
     var height: CGFloat = 54
+    /// Готовая палитра: нужна видео-открытке, где окружение `ContentTone`
+    /// не совпадает с фоном кадра.
+    var palette: ColorPalette?
+    /// Обложка текущего трека: палитра подгружается сама.
+    var artworkURL: URL?
+    /// Меняется при смене трека — взрыв частиц из центра.
+    var trackID: Int?
+    /// Меняется при лайке — маленький взрыв.
+    var likeToken: Int = 0
+    /// Время кадра для офскрин-рендера.
+    var fixedTime: Double?
 
     @Environment(\.contentTone) private var tone
+    @State private var loadedPalette: ColorPalette?
+    @State private var bursts: [ParticleBurst] = []
+
+    private static let count = 96
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
+        Group {
+            if let fixedTime {
+                Canvas { context, size in
+                    drawParticles(in: context, size: size, time: fixedTime)
+                }
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isPlaying)) { timeline in
+                    let time = timeline.date.timeIntervalSinceReferenceDate
 
-            Canvas { context, size in
-                draw(in: context, size: size, time: time)
+                    Canvas { context, size in
+                        drawParticles(in: context, size: size, time: time)
+                        drawBursts(in: context, size: size, date: timeline.date)
+                    }
+                }
             }
         }
         .frame(height: height)
         .accessibilityHidden(true)
-    }
-
-    private func draw(in context: GraphicsContext, size: CGSize, time: Double) {
-        let count = max(barCount, 1)
-        let step = size.width / CGFloat(count)
-        let barWidth = max(2, step * 0.46)
-
-        let gradient = Gradient(colors: [
-            tone.primary.opacity(0.85),
-            tone.secondary.opacity(0.55)
-        ])
-
-        for index in 0..<count {
-            let phase = Double(index) * 0.55
-            let first = sin(time * 2.1 + phase) * 0.5 + 0.5
-            let second = sin(time * 1.3 - phase * 1.7) * 0.5 + 0.5
-            let level = isPlaying
-                ? 0.18 + 0.82 * (first * 0.6 + second * 0.4)
-                : 0.16
-
-            let barHeight = max(4, size.height * CGFloat(level))
-            let x = CGFloat(index) * step + (step - barWidth) / 2
-            let y = (size.height - barHeight) / 2
-
-            let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
-            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-
-            context.fill(
-                path,
-                with: .linearGradient(
-                    gradient,
-                    startPoint: CGPoint(x: x, y: y),
-                    endPoint: CGPoint(x: x, y: y + barHeight)
-                )
+        .task(id: artworkURL) {
+            guard let artworkURL else { return }
+            loadedPalette = await ColorExtractor.shared.palette(
+                forKey: artworkURL.absoluteString,
+                from: artworkURL
             )
         }
+        .onChange(of: trackID) { _ in
+            guard isPlaying else { return }
+            addBurst(count: 50, spread: 1)
+        }
+        .onChange(of: likeToken) { _ in
+            guard isPlaying else { return }
+            addBurst(count: 20, spread: 0.55)
+        }
     }
+
+    // MARK: - Палитра
+
+    private var activePalette: ColorPalette {
+        palette ?? loadedPalette ?? .brand
+    }
+
+    private var primaryColor: Color {
+        palette == nil && loadedPalette == nil ? tone.primary : activePalette.primary.color
+    }
+
+    private var secondaryColor: Color {
+        palette == nil && loadedPalette == nil ? tone.secondary : activePalette.secondary.color
+    }
+
+    // MARK: - Частицы
+
+    private func drawParticles(in context: GraphicsContext, size: CGSize, time: Double) {
+        guard size.width > 0, size.height > 0 else { return }
+
+        let baseAlpha = isPlaying ? 0.7 : 0.28
+
+        for index in 0..<Self.count {
+            let seed = Self.fract(Double(index) * 0.6180339887)
+            let cycle = 4.5 + 4.5 * Self.fract(seed * 5.1)
+            let progress = Self.fract(time / cycle + seed)
+            let drift = sin(time * 0.9 + seed * 6.28) * 12
+
+            let x = size.width * (0.04 + 0.92 * Self.fract(seed * 2.3)) + drift
+            let y = size.height * (1 - progress)
+            let radius = 1.5 + 3.5 * Self.fract(seed * 7.1)
+
+            // Затухание к верху: частица рождается и растворяется.
+            let alpha = baseAlpha * sin(progress * .pi)
+            guard alpha > 0.01 else { continue }
+
+            let color = index.isMultiple(of: 3) ? secondaryColor : primaryColor
+            let rect = CGRect(
+                x: x - radius,
+                y: y - radius,
+                width: radius * 2,
+                height: radius * 2
+            )
+            context.fill(Path(ellipseIn: rect), with: .color(color.opacity(alpha)))
+        }
+    }
+
+    // MARK: - Взрывы
+
+    private func addBurst(count: Int, spread: Double) {
+        let burst = ParticleBurst(
+            start: Date(),
+            spread: spread,
+            particles: (0..<count).map { index in
+                let seed = Self.fract(Double(index) * 0.7548776662)
+                return BurstParticle(
+                    angle: Double(index) / Double(max(count, 1)) * .pi * 2 + seed,
+                    distance: 0.35 + 0.65 * seed,
+                    size: 1.5 + 3 * Self.fract(seed * 3.7),
+                    alternate: index.isMultiple(of: 2)
+                )
+            }
+        )
+
+        bursts.append(burst)
+        if bursts.count > 3 {
+            bursts.removeFirst(bursts.count - 3)
+        }
+    }
+
+    private func drawBursts(in context: GraphicsContext, size: CGSize, date: Date) {
+        guard !bursts.isEmpty else { return }
+
+        let center = CGPoint(x: size.width / 2, y: size.height * 0.62)
+        let maxDistance = max(size.width, size.height) * 0.55
+
+        for burst in bursts {
+            let elapsed = date.timeIntervalSince(burst.start)
+            guard elapsed >= 0, elapsed < 1.4 else { continue }
+
+            let progress = elapsed / 1.4
+            let alpha = (1 - progress) * 0.85
+
+            for particle in burst.particles {
+                let distance = maxDistance * CGFloat(particle.distance) * CGFloat(burst.spread) * CGFloat(progress)
+                let x = center.x + CGFloat(cos(particle.angle)) * distance
+                let y = center.y + CGFloat(sin(particle.angle)) * distance * 0.7
+                let radius = particle.size * CGFloat(1 - progress * 0.6)
+
+                let color = particle.alternate ? secondaryColor : primaryColor
+                let rect = CGRect(
+                    x: x - radius,
+                    y: y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                )
+                context.fill(Path(ellipseIn: rect), with: .color(color.opacity(alpha)))
+            }
+        }
+    }
+
+    private static func fract(_ value: Double) -> Double {
+        value - floor(value)
+    }
+}
+
+private struct BurstParticle {
+    let angle: Double
+    let distance: Double
+    let size: CGFloat
+    let alternate: Bool
+}
+
+private struct ParticleBurst {
+    let start: Date
+    let spread: Double
+    let particles: [BurstParticle]
 }

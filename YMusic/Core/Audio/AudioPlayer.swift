@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import OSLog
+import WidgetKit
 
 /// Плеер поверх `AVPlayer`.
 ///
@@ -42,6 +43,10 @@ final class AudioPlayer: ObservableObject {
     }
 
     var currentTrack: Track? { queue.currentTrack }
+
+    /// Для видео-открытки: исходный `AVAsset` без доступа к приватному
+    /// `AVPlayer` и позиция, с которой брать 10 секунд.
+    var currentExportAsset: AVAsset? { player.currentItem?.asset }
 
     var isPlaying: Bool {
         if case .playing = status { return true }
@@ -279,6 +284,8 @@ final class AudioPlayer: ObservableObject {
         case .preparing:
             break
         }
+
+        updateWidgetSnapshot()
     }
 
     func next() {
@@ -308,6 +315,7 @@ final class AudioPlayer: ObservableObject {
         currentTime = clamped
         persist()
         syncNowPlaying()
+        updateWidgetSnapshot()
     }
 
     func toggleShuffle() {
@@ -466,6 +474,7 @@ final class AudioPlayer: ObservableObject {
 
             recordRecent(track)
             ListeningStatsStore.shared.recordStart(track)
+            updateWidgetSnapshot(reload: true)
             persist()
             syncNowPlaying()
         } catch is CancellationError {
@@ -503,6 +512,7 @@ final class AudioPlayer: ObservableObject {
             seek(to: 0)
             status = .paused
             syncNowPlaying()
+            updateWidgetSnapshot(reload: true)
             return
         }
 
@@ -580,6 +590,39 @@ final class AudioPlayer: ObservableObject {
         if tickCount % Self.checkpointTicks == 0 {
             syncNowPlaying()
             persist()
+            updateWidgetSnapshot()
+        }
+    }
+
+    // MARK: - Виджет
+
+    /// Снимок для WidgetKit. Обновление таймлайна — только на смене трека
+    /// и переходе play/pause: `reloadAllTimelines()` тратит бюджет системы,
+    /// а прогресс виджет считает сам от `updatedAt`.
+    private func updateWidgetSnapshot(reload: Bool = false) {
+        guard let track = queue.currentTrack else {
+            WidgetSharedStore.clear()
+            if reload {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+            return
+        }
+
+        WidgetSharedStore.save(
+            WidgetTrackSnapshot(
+                id: track.id,
+                title: track.title,
+                artist: track.artistLine,
+                artworkURLString: track.artworkURL?.absoluteString,
+                isPlaying: isPlaying,
+                currentTime: currentTime,
+                duration: max(duration, track.duration),
+                updatedAt: Date()
+            )
+        )
+
+        if reload {
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 
@@ -765,6 +808,7 @@ final class AudioPlayer: ObservableObject {
         isBuffering = false
         pendingSeek = nil
         nowPlaying.setCommandsEnabled(false)
+        updateWidgetSnapshot(reload: true)
     }
 
     private func persist() {
