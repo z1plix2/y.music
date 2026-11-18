@@ -24,7 +24,7 @@ struct ShareVideoScene: View {
 
                 cover
 
-                WaveVisualizer(isPlaying: true, barCount: 44, height: 150, fixedTime: time)
+                WaveVisualizer(isPlaying: true, height: 150, palette: palette, fixedTime: time)
                     .padding(.horizontal, 120)
                     .padding(.top, 54)
 
@@ -308,7 +308,7 @@ final class ShareVideoRenderer: ObservableObject {
             duration: CMTime(seconds: clipDuration, preferredTimescale: 600)
         )
 
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             session.exportAsynchronously {
                 continuation.resume()
             }
@@ -497,7 +497,7 @@ final class ShareVideoRenderer: ObservableObject {
         try pumpAudio(output: audioOutput, input: audioInput, maxBuffers: nil)
         audioInput.markAsFinished()
 
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writer.finishWriting {
                 continuation.resume()
             }

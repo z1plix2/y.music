@@ -15,6 +15,7 @@ struct NowPlayingView: View {
     @State private var sharePayload: SharePayload?
     @State private var isPreparingShare = false
     @State private var showVideoError = false
+    @State private var likeBurstToken = 0
     @StateObject private var videoRenderer = ShareVideoRenderer()
     /// Плеер глушим на время распознавания: микрофон не должен слышать
     /// наш же трек. Возвращаем только если пользователь не включил другой.
@@ -83,8 +84,14 @@ struct NowPlayingView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 22) {
                     artwork
-                    WaveVisualizer(isPlaying: player.isPlaying)
-                        .frame(maxWidth: 320)
+                    WaveVisualizer(
+                        isPlaying: player.isPlaying,
+                        height: 64,
+                        artworkURL: track?.artworkURL,
+                        trackID: track?.id,
+                        likeToken: likeBurstToken
+                    )
+                    .frame(maxWidth: 320)
                     titles
                     progress
                     controls
@@ -502,6 +509,7 @@ struct NowPlayingView: View {
                             // Лайк уходит и в сессию волны: ротор учитывает
                             // его в подборе следующих треков.
                             waveSession.like(track)
+                            likeBurstToken += 1
                         }
                     }
                 }
