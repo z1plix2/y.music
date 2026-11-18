@@ -20,6 +20,7 @@ struct NowPlayingView: View {
     /// наш же трек. Возвращаем только если пользователь не включил другой.
     @State private var resumeAfterShazam = false
     @State private var isQueuePresented = false
+    @State private var artworkDrag: CGFloat = 0
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -74,6 +75,7 @@ struct NowPlayingView: View {
             QueueView()
                 .environmentObject(player)
         }
+        .simultaneousGesture(dismissGesture)
         .alert("Видео не готово", isPresented: $showVideoError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -83,6 +85,12 @@ struct NowPlayingView: View {
 
     private var content: some View {
         VStack(spacing: 0) {
+            Capsule()
+                .fill(tone.tertiary.opacity(0.55))
+                .frame(width: 36, height: 4)
+                .padding(.top, 6)
+                .accessibilityHidden(true)
+
             topBar
 
             ScrollView(showsIndicators: false) {
@@ -123,16 +131,11 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            Text("Сейчас играет")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(tone.tertiary)
-
-            Spacer()
-
             HStack(spacing: 8) {
                 videoButton
                 shareButton
                 queueButton
+                airPlayButton
 
                 GlassIconButton("mic", label: "Распознать трек") {
                     Haptics.light()
@@ -329,6 +332,33 @@ struct NowPlayingView: View {
 
     // MARK: - Обложка и подписи
 
+    /// Системная кнопка выбора AirPlay-устройства.
+    private var airPlayButton: some View {
+        ZStack {
+            Circle().fill(Color.white.opacity(0.08))
+            Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+            AirPlayButton(tint: .white)
+                .frame(width: 26, height: 26)
+        }
+        .frame(width: 40, height: 40)
+        .accessibilityLabel("AirPlay")
+    }
+
+    /// Свайп вниз по экрану закрывает плеер. Порог и проверка вертикали
+    /// не дают сработать на горизонтальном свайпе обложки.
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: 30)
+            .onEnded { value in
+                guard value.translation.height > 100,
+                      abs(value.translation.height) > abs(value.translation.width)
+                else { return }
+                Haptics.light()
+                dismiss()
+            }
+    }
+
+    // MARK: - Обложка и подписи
+
     private var artwork: some View {
         CachedAsyncImage(url: track?.artworkURL) {
             ZStack {
@@ -346,7 +376,38 @@ struct NowPlayingView: View {
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.4), radius: 26, x: 0, y: 16)
+        .offset(x: artworkDrag * 0.22)
+        .simultaneousGesture(artworkDragGesture)
+        .onTapGesture(count: 2) {
+            Haptics.light()
+            player.togglePlayPause()
+        }
         .padding(.top, 6)
+    }
+
+    /// Горизонтальный свайп по обложке: влево — следующий, вправо — предыдущий.
+    /// Вертикальный жест отдаём `ScrollView`, поэтому обновляем смещение
+    /// только когда движение явно горизонтальное.
+    private var artworkDragGesture: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                artworkDrag = value.translation.width
+            }
+            .onEnded { value in
+                let width = value.translation.width
+                if width <= -80 {
+                    Haptics.light()
+                    player.next()
+                } else if width >= 80 {
+                    Haptics.light()
+                    player.previous()
+                }
+
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                    artworkDrag = 0
+                }
+            }
     }
 
     private var titles: some View {
@@ -579,26 +640,64 @@ struct NowPlayingProgress: View {
 
     var fallbackDuration: Double = 0
 
+    @AppStorage("player.showRemaining") private var showRemaining = true
+
     @State private var scrubValue: Double?
+    @State private var isScrubbing = false
+    @State private var lastHapticStep = -1
 
     var body: some View {
         let total = max(player.duration, fallbackDuration, 1)
         let shown = min(scrubValue ?? player.currentTime, total)
 
-        return VStack(spacing: 4) {
+        return VStack(spacing: 6) {
             Slider(
                 value: Binding(
                     get: { shown },
-                    set: { scrubValue = $0 }
+                    set: { value in
+                        scrubValue = value
+
+                        // Haptic каждые 5%: двадцать шагов на трек — не spam,
+                        // но заметно, когда ведёшь палец.
+                        let step = Int((value / total) * 20)
+                        if step != lastHapticStep {
+                            lastHapticStep = step
+                            Haptics.selection()
+                        }
+                    }
                 ),
                 in: 0...total,
                 onEditingChanged: { editing in
-                    guard !editing else { return }
-                    player.seek(to: scrubValue ?? player.currentTime)
-                    scrubValue = nil
+                    if editing {
+                        isScrubbing = true
+                        lastHapticStep = -1
+                    } else {
+                        player.seek(to: scrubValue ?? player.currentTime)
+                        scrubValue = nil
+                        isScrubbing = false
+                        Haptics.light()
+                    }
                 }
             )
             .tint(tone.primary)
+            // Плавный ход между тиками `currentTime` (2 раза в секунду).
+            .animation(.linear(duration: 0.5), value: player.currentTime)
+            .overlay(alignment: .top) {
+                if isScrubbing {
+                    Text(Self.timeText(shown))
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(tone.primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background { Capsule().fill(Color.black.opacity(0.55)) }
+                        .overlay {
+                            Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        }
+                        .offset(y: -26)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
+            }
 
             HStack {
                 Text(Self.timeText(shown))
@@ -607,11 +706,25 @@ struct NowPlayingProgress: View {
 
                 Spacer()
 
-                Text(Self.timeText(total))
+                Button {
+                    Haptics.selection()
+                    showRemaining.toggle()
+                } label: {
+                    Text(
+                        showRemaining
+                            ? "-" + Self.timeText(max(total - shown, 0))
+                            : Self.timeText(total)
+                    )
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(tone.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    showRemaining ? "Показать длительность" : "Показать остаток"
+                )
             }
         }
+        .animation(.easeInOut(duration: 0.15), value: isScrubbing)
     }
 
     private static func timeText(_ seconds: Double) -> String {
