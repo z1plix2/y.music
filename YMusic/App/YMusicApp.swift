@@ -62,6 +62,8 @@ struct RootView: View {
 
     /// Трек из deep link, пришедший до восстановления сессии.
     @State private var pendingTrackID: Int?
+    /// Секунда из ?t= в ссылке: трек откроется и перемотается.
+    @State private var pendingStartTime: Double?
 
     private let logger = Logger(subsystem: "com.example.ymusic", category: "DeepLink")
 
@@ -170,33 +172,65 @@ struct RootView: View {
             return
         }
 
+        let startTime = Self.timecode(from: url)
+
         guard case .signedIn = auth.state else {
             pendingTrackID = trackID
+            pendingStartTime = startTime
             return
         }
 
-        openTrack(trackID: trackID)
+        openTrack(trackID: trackID, startAt: startTime)
     }
 
     private func resolvePendingDeepLink() {
         guard let trackID = pendingTrackID else { return }
         pendingTrackID = nil
-        openTrack(trackID: trackID)
+        let startTime = pendingStartTime
+        pendingStartTime = nil
+        openTrack(trackID: trackID, startAt: startTime)
     }
 
-    private func openTrack(trackID: Int) {
+    /// `?t=83` или `?t=1:23` → секунды. Некорректное значение — `nil`.
+    private static func timecode(from url: URL) -> Double? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let raw = components.queryItems?.first(where: { $0.name == "t" })?.value,
+              !raw.isEmpty
+        else {
+            return nil
+        }
+
+        if let seconds = Double(raw) {
+            return seconds.isFinite && seconds >= 0 ? seconds : nil
+        }
+
+        let parts = raw.split(separator: ":").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return parts[0] * 60 + parts[1]
+    }
+
+    /// Применяет таймкод после старта: `seekAfterLoad` ждёт готовности item.
+    private func applyStartTime(_ startAt: Double?) {
+        guard let startAt, startAt > 1 else { return }
+        player.seekAfterLoad(startAt)
+    }
+
+    private func openTrack(trackID: Int, startAt: Double? = nil) {
         guard player.isConfigured else {
             pendingTrackID = trackID
+            pendingStartTime = startAt
             return
         }
 
         if let existing = player.queue.tracks.first(where: { $0.id == trackID }) {
             player.play(track: existing, in: player.queue.tracks)
+            applyStartTime(startAt)
             return
         }
 
         if let recent = player.recents.first(where: { $0.id == trackID }) {
             player.play(track: recent, in: [recent])
+            applyStartTime(startAt)
             return
         }
 
@@ -208,6 +242,7 @@ struct RootView: View {
                     return
                 }
                 player.play(track: track, in: [track])
+                applyStartTime(startAt)
             } catch {
                 logger.error("Deep link: \(error.localizedDescription, privacy: .public)")
             }

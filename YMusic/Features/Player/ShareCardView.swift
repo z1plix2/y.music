@@ -13,6 +13,8 @@ struct ShareCardView: View {
     let palette: ColorPalette
     let artwork: UIImage?
     let qrImage: UIImage?
+    /// Секунда, с которой начнётся воспроизведение по ссылке из QR.
+    var startTime: Double?
 
     var body: some View {
         ZStack {
@@ -86,6 +88,15 @@ struct ShareCardView: View {
         .shadow(color: .black.opacity(0.35), radius: 20, x: 0, y: 12)
     }
 
+    private var footerHint: String {
+        guard let startTime, startTime > 1 else {
+            return "Наведи камеру — откроется трек"
+        }
+        let total = Int(startTime.rounded())
+        let text = String(format: "%d:%02d", total / 60, total % 60)
+        return "Наведи камеру — трек с \(text)"
+    }
+
     private var footer: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -97,7 +108,7 @@ struct ShareCardView: View {
                 }
                 .foregroundStyle(.white.opacity(0.85))
 
-                Text("Наведи камеру — откроется трек")
+                Text(footerHint)
                     .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(.white.opacity(0.5))
             }
@@ -127,7 +138,7 @@ struct ShareCardView: View {
 /// рендерим с фирменным градиентом, а не падаем.
 @MainActor
 enum ShareCardRenderer {
-    static func image(for track: Track) async -> UIImage {
+    static func image(for track: Track, startAt: Double? = nil) async -> UIImage {
         let artwork: UIImage?
         if let artworkURL = track.artworkURL {
             artwork = await ImageLoader.shared.image(for: artworkURL)
@@ -143,11 +154,26 @@ enum ShareCardRenderer {
             palette = .brand
         }
 
-        let qr = QRCode.image(from: "ymusic://track/\(track.id)", size: 256)
+        let qr = QRCode.image(from: Self.link(for: track, startAt: startAt), size: 256)
 
         return render(
-            ShareCardView(track: track, palette: palette, artwork: artwork, qrImage: qr)
+            ShareCardView(
+                track: track,
+                palette: palette,
+                artwork: artwork,
+                qrImage: qr,
+                startTime: startAt
+            )
         )
+    }
+
+    /// Ссылка для QR: с `?t=`, если известна секунда.
+    static func link(for track: Track, startAt: Double?) -> String {
+        guard let startAt, startAt > 1 else {
+            return "ymusic://track/\(track.id)"
+        }
+        let seconds = Int(startAt.rounded())
+        return "ymusic://track/\(track.id)?t=\(seconds)"
     }
 
     private static func render<V: View>(_ view: V) -> UIImage {

@@ -223,7 +223,10 @@ final class ShareVideoRenderer: ObservableObject {
                 palette = .brand
             }
 
-            let qr = QRCode.image(from: "ymusic://track/\(track.id)", size: 512)
+            let qr = QRCode.image(
+                from: ShareCardRenderer.link(for: track, startAt: startTime),
+                size: 512
+            )
             let audioURL = try await exportAudio(from: asset, start: startTime)
             defer { try? FileManager.default.removeItem(at: audioURL) }
 

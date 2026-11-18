@@ -212,6 +212,7 @@ struct NowPlayingView: View {
                     )
                     .frame(maxWidth: 320)
                     titles
+                    quickActions
                     if useWaveformScrubber {
                         WaveformScrubber(
                             fallbackDuration: track?.duration ?? 0,
@@ -418,10 +419,89 @@ struct NowPlayingView: View {
         isPreparingShare = true
 
         Task { @MainActor in
-            let image = await ShareCardRenderer.image(for: track)
+            // Таймкод только для играющего трека: у остальных секунда чужая.
+            let startAt = track.id == player.currentTrack?.id ? player.currentTime : nil
+            let image = await ShareCardRenderer.image(for: track, startAt: startAt)
             isPreparingShare = false
             sharePayload = SharePayload(items: [image])
         }
+    }
+
+    /// Скорость и «похожее» под названием: редкие действия, но под рукой.
+    /// Не в верхней панели — там уже пять кнопок, шестая не влезет на iPhone SE.
+    private var quickActions: some View {
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(AudioPlayer.allowedRates, id: \.self) { rate in
+                    Button {
+                        Haptics.selection()
+                        player.setPlaybackRate(rate)
+                    } label: {
+                        if abs(player.playbackRate - rate) < 0.01 {
+                            Label(Self.rateTitle(rate), systemImage: "checkmark")
+                        } else {
+                            Text(Self.rateTitle(rate))
+                        }
+                    }
+                }
+
+                if player.playbackRate != 1 {
+                    Button("Сбросить на 1×") {
+                        Haptics.selection()
+                        player.setPlaybackRate(1)
+                    }
+                }
+            } label: {
+                quickChip(
+                    systemImage: "speedometer",
+                    text: Self.rateTitle(player.playbackRate),
+                    highlighted: player.playbackRate != 1
+                )
+            }
+            .accessibilityLabel("Скорость воспроизведения")
+            .accessibilityValue(Self.rateTitle(player.playbackRate))
+
+            if let track {
+                Button {
+                    Haptics.selection()
+                    // Сид `track:{id}` — сессия радио стартует от трека.
+                    waveSession.start(from: track, seeds: ["track:\(track.id)"])
+                } label: {
+                    quickChip(
+                        systemImage: "sparkles",
+                        text: "Похожее",
+                        highlighted: false
+                    )
+                }
+                .accessibilityLabel("Играть похожее")
+            }
+        }
+    }
+
+    private func quickChip(systemImage: String, text: String, highlighted: Bool) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+            Text(text)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(highlighted ? tone.primary : tone.secondary)
+        .padding(.horizontal, 11)
+        .frame(height: 28)
+        .background { Capsule().fill(Color.white.opacity(highlighted ? 0.14 : 0.07)) }
+        .overlay {
+            Capsule().strokeBorder(
+                highlighted ? tone.primary.opacity(0.35) : Color.white.opacity(0.10),
+                lineWidth: 1
+            )
+        }
+    }
+
+    private static func rateTitle(_ rate: Float) -> String {
+        if abs(rate - rate.rounded()) < 0.01 {
+            return "\(Int(rate.rounded()))×"
+        }
+        return String(format: "%.2g×", rate)
     }
 
     /// Очередь: badge с числом треков, чтобы было видно, что там что-то есть.
