@@ -63,6 +63,7 @@ final class AudioPlayer: ObservableObject {
     private var pendingSeek: Double?
     private var wasPlayingBeforeInterruption = false
     private var tickCount = 0
+    private var fadeTask: Task<Void, Never>?
 
     init(
         streamProvider: any AudioStreamProviding = YandexAudioStreamProvider.shared,
@@ -152,6 +153,41 @@ final class AudioPlayer: ObservableObject {
         persist()
     }
 
+    /// Плавный переход на следующий трек: громкость уходит в ноль, меняется
+    /// элемент, громкость возвращается. Полноценный кроссфейд (два
+    /// `AVPlayerItem` одновременно) требует второй плеер и переписывания
+    /// `replaceCurrentItem`, поэтому шаг честный: fade out + fade in.
+    /// Нужен дизлайку в «Моей волне», но работает для любого `next()`.
+    func fadeOutAndNext() {
+        guard !queue.isEmpty else { return }
+
+        fadeTask?.cancel()
+        let target = volume
+        let steps = 8
+
+        fadeTask = Task { [weak self] in
+            guard let self else { return }
+
+            for step in 1...steps {
+                guard !Task.isCancelled else {
+                    self.player.volume = target
+                    return
+                }
+                self.player.volume = target * Float(steps - step) / Float(steps)
+                try? await Task.sleep(nanoseconds: 30_000_000)
+            }
+
+            self.next()
+
+            for step in 1...steps {
+                guard !Task.isCancelled else { break }
+                self.player.volume = target * Float(step) / Float(steps)
+                try? await Task.sleep(nanoseconds: 40_000_000)
+            }
+            self.player.volume = target
+        }
+    }
+
     func togglePlayPause() {
         switch status {
         case .playing:
@@ -225,6 +261,8 @@ final class AudioPlayer: ObservableObject {
         loadGeneration += 1
         loadTask?.cancel()
         loadTask = nil
+        fadeTask?.cancel()
+        fadeTask = nil
 
         player.pause()
         player.replaceCurrentItem(with: nil)
