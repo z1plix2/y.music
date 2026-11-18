@@ -62,8 +62,8 @@ struct DynamicBackground<Content: View>: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.03, green: 0.03, blue: 0.05),
-                    Color(red: 0.05, green: 0.04, blue: 0.08)
+                    Color(red: 0.05, green: 0.05, blue: 0.07),
+                    Color(red: 0.07, green: 0.06, blue: 0.10)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -72,23 +72,23 @@ struct DynamicBackground<Content: View>: View {
             Circle()
                 .fill(palette.primary.color)
                 .frame(width: 540, height: 540)
-                .blur(radius: 80)
-                .opacity(0.85)
+                .blur(radius: 100)
+                .opacity(0.50)
                 .drawingGroup()
-                .offset(x: -150, y: isDrifting ? -250 : -190)
+                .offset(x: -150, y: isDrifting ? -230 : -200)
 
             Circle()
                 .fill(palette.secondary.color)
                 .frame(width: 480, height: 480)
-                .blur(radius: 90)
-                .opacity(0.7)
+                .blur(radius: 110)
+                .opacity(0.40)
                 .drawingGroup()
                 .offset(x: 170, y: isDrifting ? 360 : 290)
 
             // Скрим: гарантирует контраст текста даже при светлой обложке,
             // независимо от того, что делает материал.
             LinearGradient(
-                colors: [Color.black.opacity(0.10), Color.black.opacity(0.48)],
+                colors: [Color.black.opacity(0.20), Color.black.opacity(0.65)],
                 startPoint: .top,
                 endPoint: .bottom
             )

@@ -29,6 +29,6 @@ struct LikeButton: View {
     }
 
     private var accent: Color {
-        Color(red: 0.94, green: 0.24, blue: 0.36)
+        Color(red: 0.85, green: 0.20, blue: 0.30)
     }
 }

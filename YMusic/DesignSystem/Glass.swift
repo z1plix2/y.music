@@ -48,7 +48,7 @@ struct GlassBackgroundOverlay: View {
 
 struct GlassPanel: ViewModifier {
     var cornerRadius: CGFloat = 28
-    var material: Material = .ultraThinMaterial
+    var material: Material = .thinMaterial
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -66,19 +66,19 @@ struct GlassPanel: ViewModifier {
             .overlay {
                 shape.strokeBorder(
                     LinearGradient(
-                        colors: [.white.opacity(0.55), .white.opacity(0.08)],
+                        colors: [.white.opacity(0.35), .white.opacity(0.04)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
                     lineWidth: 1
                 )
             }
-            .shadow(color: .black.opacity(0.35), radius: 26, x: 0, y: 14)
+            .shadow(color: .black.opacity(0.28), radius: 20, x: 0, y: 14)
     }
 }
 
 extension View {
-    func glassPanel(cornerRadius: CGFloat = 28, material: Material = .ultraThinMaterial) -> some View {
+    func glassPanel(cornerRadius: CGFloat = 28, material: Material = .thinMaterial) -> some View {
         modifier(GlassPanel(cornerRadius: cornerRadius, material: material))
     }
 }
@@ -186,8 +186,8 @@ struct GlassButton: View {
             Capsule().fill(
                 LinearGradient(
                     colors: [
-                        Color(red: 0.92, green: 0.18, blue: 0.24),
-                        Color(red: 0.82, green: 0.08, blue: 0.16)
+                        Color(red: 0.82, green: 0.08, blue: 0.16),
+                        Color(red: 0.72, green: 0.04, blue: 0.12)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -195,9 +195,9 @@ struct GlassButton: View {
             )
         } else {
             Capsule()
-                .fill(.ultraThinMaterial)
+                .fill(.thinMaterial)
                 .overlay {
-                    Capsule().fill(Color.black.opacity(0.14))
+                    Capsule().fill(Color.black.opacity(0.22))
                 }
         }
     }
@@ -209,7 +209,7 @@ struct GlassButton: View {
         } else {
             Capsule().strokeBorder(
                 LinearGradient(
-                    colors: [.white.opacity(0.45), .white.opacity(0.06)],
+                    colors: [.white.opacity(0.30), .white.opacity(0.04)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
@@ -220,7 +220,7 @@ struct GlassButton: View {
 
     private var shadowColor: Color {
         prominence == .prominent
-            ? Color(red: 0.90, green: 0.15, blue: 0.20).opacity(0.35)
+            ? Color(red: 0.90, green: 0.15, blue: 0.20).opacity(0.25)
             : Color.black.opacity(0.25)
     }
 }
@@ -378,11 +378,11 @@ struct LiquidBackdrop: View {
                 endPoint: .bottomTrailing
             )
 
-            blob(tint, size: 360, x: animate ? 120 : -110, y: animate ? -220 : -60, opacity: 0.55)
+            blob(tint, size: 360, x: animate ? 120 : -110, y: animate ? -220 : -60, opacity: 0.38)
             blob(Color(red: 0.35, green: 0.25, blue: 0.95), size: 320,
-                 x: animate ? -130 : 100, y: animate ? 180 : 320, opacity: 0.45)
+                 x: animate ? -130 : 100, y: animate ? 180 : 320, opacity: 0.32)
             blob(Color(red: 0.10, green: 0.65, blue: 0.85), size: 260,
-                 x: animate ? 90 : 20, y: animate ? 320 : 120, opacity: 0.3)
+                 x: animate ? 90 : 20, y: animate ? 320 : 120, opacity: 0.21)
         }
         .allowsHitTesting(false)
     }
