@@ -23,6 +23,11 @@ struct NowPlayingView: View {
     @State private var isLyricsPresented = false
     @State private var artworkDrag: CGFloat = 0
     @State private var artworkPalette: ColorPalette = .brand
+    @AppStorage("playerMode") private var playerModeRaw = PlayerMode.standard.rawValue
+
+    private var mode: PlayerMode {
+        PlayerMode(rawValue: playerModeRaw) ?? .standard
+    }
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -36,7 +41,7 @@ struct NowPlayingView: View {
             cacheKey: track?.artworkURL?.absoluteString ?? "now-playing",
             fallback: .brand
         ) {
-            content
+            modeContent
         }
         .overlay(alignment: .bottom) {
             if isShazamPresented {
@@ -53,6 +58,7 @@ struct NowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: isShazamPresented)
+        .animation(.easeInOut(duration: 0.35), value: playerModeRaw)
         .overlay(alignment: .top) {
             if videoRenderer.isRendering {
                 HStack(spacing: 8) {
@@ -101,6 +107,23 @@ struct NowPlayingView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(videoRenderer.failure ?? "Попробуйте ещё раз.")
+        }
+    }
+
+    /// Обычный и виниловый плеер живут в одном `DynamicBackground`: палитра
+    /// обложки общая, переход — opacity + лёгкий scale.
+    @ViewBuilder
+    private var modeContent: some View {
+        if mode == .vinyl {
+            VinylPlayerView(
+                palette: artworkPalette,
+                onClose: { dismiss() },
+                onExitVinyl: { playerModeRaw = PlayerMode.standard.rawValue }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        } else {
+            content
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
     }
 
@@ -156,7 +179,7 @@ struct NowPlayingView: View {
                 videoButton
                 shareButton
                 queueButton
-                airPlayButton
+                modeButton
 
                 GlassIconButton("mic", label: "Распознать трек") {
                     Haptics.light()
@@ -352,6 +375,26 @@ struct NowPlayingView: View {
     }
 
     // MARK: - Обложка и подписи
+
+    /// Переключение на винил. Режим сохраняется, поэтому следующий запуск
+    /// плеера откроется в том же виде.
+    private var modeButton: some View {
+        Button {
+            Haptics.selection()
+            playerModeRaw = PlayerMode.vinyl.rawValue
+        } label: {
+            Image(systemName: "opticaldisc")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tone.primary)
+                .frame(width: 40, height: 40)
+                .background { Circle().fill(Color.white.opacity(0.08)) }
+                .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                }
+        }
+        .buttonStyle(PressableStyle(scale: 0.9))
+        .accessibilityLabel("Виниловый режим")
+    }
 
     /// Системная кнопка выбора AirPlay-устройства.
     private var airPlayButton: some View {
@@ -644,6 +687,8 @@ struct NowPlayingView: View {
                     }
                 }
                 .accessibilityLabel(likes.isLiked(track.id) ? "Убрать из «Мне нравится»" : "Добавить в «Мне нравится»")
+
+                airPlayButton
             }
             .frame(maxWidth: .infinity)
         }
