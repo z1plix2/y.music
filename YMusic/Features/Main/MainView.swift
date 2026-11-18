@@ -392,31 +392,20 @@ private struct MainScrollContent: View {
     }
 
     private func waveFailCard(_ error: APIError) -> some View {
-        GlassCard(cornerRadius: 30, padding: 20) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    GlassChip("Моя волна", systemImage: "waveform")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                GlassChip("Моя волна", systemImage: "waveform")
 
-                    Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(tone.tertiary)
-                }
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tone.tertiary)
+            }
+            .padding(.horizontal, 4)
 
-                Text("Поток под ваше настроение")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(tone.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("Ротор не ответил: \(error.localizedDescription)")
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                GlassButton("Повторить", systemImage: "arrow.clockwise") {
-                    Task { await wave.retry() }
-                }
+            ErrorStateCard(error: error, cornerRadius: 30) {
+                Task { await wave.retry() }
             }
         }
     }

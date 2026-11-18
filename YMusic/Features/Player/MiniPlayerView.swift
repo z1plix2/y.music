@@ -44,6 +44,7 @@ struct MiniPlayerView: View {
             Spacer(minLength: 8)
 
             Button {
+                Haptics.light()
                 player.togglePlayPause()
             } label: {
                 Image(systemName: playSymbol)

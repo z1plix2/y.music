@@ -35,6 +35,7 @@ struct SearchView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
                     .padding(.bottom, 40)
+                    .animation(.easeInOut(duration: 0.25), value: contentKey)
                 }
             }
         }
@@ -116,23 +117,38 @@ struct SearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isShowingHistory {
-            historySection
-        } else {
-            switch viewModel.state {
-            case .idle, .loading:
-                skeleton
+        Group {
+            if viewModel.isShowingHistory {
+                historySection
+            } else {
+                switch viewModel.state {
+                case .idle, .loading:
+                    skeleton
 
-            case .loaded(let result):
-                if result.isEmpty {
-                    emptyCard
-                } else {
-                    resultSections(result)
+                case .loaded(let result):
+                    if result.isEmpty {
+                        emptyCard
+                    } else {
+                        resultSections(result)
+                    }
+
+                case .failed(let error):
+                    errorCard(error)
                 }
-
-            case .failed(let error):
-                errorCard(error)
             }
+        }
+        .transition(.opacity)
+    }
+
+    /// Стабильный ключ фазы: fade только при скелетон → результат/ошибка,
+    /// а не на каждый новый результат ввода.
+    private var contentKey: String {
+        if viewModel.isShowingHistory { return "history" }
+        switch viewModel.state {
+        case .idle: return "idle"
+        case .loading: return "loading"
+        case .loaded: return "loaded"
+        case .failed: return "failed"
         }
     }
 
@@ -302,26 +318,8 @@ struct SearchView: View {
     }
 
     private func errorCard(_ error: APIError) -> some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: error.requiresReauthentication ? "lock.slash" : "exclamationmark.triangle")
-                        .font(.system(size: 16, weight: .semibold))
-
-                    Text(error.requiresReauthentication ? "Сессия истекла" : "Поиск не удался")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(tone.primary)
-
-                Text(error.localizedDescription)
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                GlassButton("Повторить", systemImage: "arrow.clockwise") {
-                    viewModel.retry()
-                }
-            }
+        ErrorStateCard(error: error, context: .search) {
+            viewModel.retry()
         }
     }
 

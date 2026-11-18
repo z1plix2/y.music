@@ -127,7 +127,7 @@ final class CatalogViewModel: ObservableObject {
             // Ушли с экрана: текущее состояние не трогаем.
             return
         } catch let apiError as APIError {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !apiError.isCancellation else { return }
             logger.error("Каталог: \(apiError.localizedDescription, privacy: .public)")
             if apiError.requiresReauthentication {
                 onSessionExpired?()

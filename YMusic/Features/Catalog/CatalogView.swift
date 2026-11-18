@@ -16,27 +16,42 @@ struct CatalogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            switch viewModel.state {
-            case .idle, .loading:
-                skeletonSections
+            Group {
+                switch viewModel.state {
+                case .idle, .loading:
+                    skeletonSections
 
-            case .loaded(let landings):
-                if landings.isEmpty {
-                    emptyCard
-                } else {
-                    ForEach(landings) { landing in
-                        switch landing.kind {
-                        case .playlists:
-                            playlistSection(landing)
-                        case .likedTracks:
-                            trackSection(landing)
+                case .loaded(let landings):
+                    if landings.isEmpty {
+                        emptyCard
+                    } else {
+                        ForEach(landings) { landing in
+                            switch landing.kind {
+                            case .playlists:
+                                playlistSection(landing)
+                            case .likedTracks:
+                                trackSection(landing)
+                            }
                         }
                     }
-                }
 
-            case .failed(let error):
-                errorCard(error)
+                case .failed(let error):
+                    errorCard(error)
+                }
             }
+            .transition(.opacity)
+        }
+        .animation(.easeInOut(duration: 0.25), value: stateKey)
+    }
+
+    /// Смена скелетон → контент/ошибка анимируется только по этой «фазе»:
+    /// догрузка страниц не должна перезапускать fade.
+    private var stateKey: Int {
+        switch viewModel.state {
+        case .idle: return 0
+        case .loading: return 1
+        case .loaded: return 2
+        case .failed: return 3
         }
     }
 
@@ -143,29 +158,8 @@ struct CatalogView: View {
     }
 
     private func errorCard(_ error: APIError) -> some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: error.requiresReauthentication ? "lock.slash" : "exclamationmark.triangle")
-                        .font(.system(size: 16, weight: .semibold))
-
-                    Text(error.requiresReauthentication ? "Сессия истекла" : "Не удалось загрузить")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(tone.primary)
-
-                Text(error.localizedDescription)
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                GlassButton(
-                    error.requiresReauthentication ? "Войти заново" : "Повторить",
-                    systemImage: error.requiresReauthentication ? "person.crop.circle" : "arrow.clockwise"
-                ) {
-                    Task { await viewModel.retry() }
-                }
-            }
+        ErrorStateCard(error: error) {
+            Task { await viewModel.retry() }
         }
     }
 

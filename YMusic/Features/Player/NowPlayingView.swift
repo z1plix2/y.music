@@ -153,12 +153,14 @@ struct NowPlayingView: View {
             .accessibilityLabel("Перемешать")
 
             controlButton("backward.fill", label: "Предыдущий") {
+                Haptics.light()
                 player.previous()
             }
 
             playPauseButton
 
             controlButton("forward.fill", label: "Следующий") {
+                Haptics.light()
                 player.next()
             }
 
@@ -178,6 +180,7 @@ struct NowPlayingView: View {
 
     private var playPauseButton: some View {
         Button {
+            Haptics.light()
             player.togglePlayPause()
         } label: {
             ZStack {
@@ -251,29 +254,14 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private var statusCard: some View {
-        if case .failed(let error) = player.status {
-            GlassCard(cornerRadius: 22, padding: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: error.isSubscriptionRequired ? "lock.fill" : "exclamationmark.triangle")
-                            .font(.system(size: 14, weight: .semibold))
-
-                        Text(error.isSubscriptionRequired ? "Требуется подписка" : "Не удалось воспроизвести")
-                            .font(.system(size: 15, weight: .semibold))
-                    }
-                    .foregroundStyle(tone.primary)
-
-                    Text(error.localizedDescription)
-                        .font(.footnote)
-                        .foregroundStyle(tone.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text("Это честный ответ сервера: клиент не обходит ограничения доступа.")
-                        .font(.caption2)
-                        .foregroundStyle(tone.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        if case .failed(let error) = player.status, !error.isCancellation {
+            ErrorStateCard(
+                error: error,
+                context: .track,
+                cornerRadius: 22,
+                padding: 16,
+                footnote: "Это честный ответ сервера: клиент не обходит ограничения доступа."
+            )
         } else if let notice = player.notice {
             GlassCard(cornerRadius: 22, padding: 14) {
                 HStack(spacing: 10) {

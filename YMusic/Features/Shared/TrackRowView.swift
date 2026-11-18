@@ -21,6 +21,7 @@ struct TrackRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             Button {
+                Haptics.light()
                 onTap?()
             } label: {
                 HStack(spacing: 12) {

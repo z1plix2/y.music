@@ -134,7 +134,7 @@ final class SearchViewModel: ObservableObject {
             } catch is CancellationError {
                 return
             } catch let error as APIError {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, !error.isCancellation else { return }
                 self.logger.error("Поиск: \(error.localizedDescription, privacy: .public)")
                 self.state = .failed(error)
             } catch {
