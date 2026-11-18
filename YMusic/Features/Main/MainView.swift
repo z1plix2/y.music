@@ -61,8 +61,8 @@ struct MainView: View {
         }
         .environmentObject(likes)
         .animation(.easeInOut(duration: 0.25), value: player.currentTrack?.id)
-        .sheet(item: $route) { route in
-            destination(for: route)
+        .sheet(item: $route) { presented in
+            destination(for: presented, onClose: { route = nil })
                 .environmentObject(auth)
                 .environmentObject(player)
                 .environmentObject(likes)
@@ -119,7 +119,7 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private func destination(for route: MainRoute) -> some View {
+    private func destination(for route: MainRoute, onClose: @escaping () -> Void) -> some View {
         switch route {
         case .player:
             NowPlayingView(onOpenArtist: { artistID in
@@ -138,7 +138,7 @@ struct MainView: View {
         case .stats:
             StatsView()
         case .settings:
-            SettingsView(account: account, onClose: { route = nil })
+            SettingsView(account: account, onClose: onClose)
         }
     }
 
