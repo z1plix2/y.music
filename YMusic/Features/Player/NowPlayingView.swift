@@ -146,7 +146,9 @@ struct NowPlayingView: View {
                         height: 64,
                         artworkURL: track?.artworkURL,
                         trackID: track?.id,
-                        likeToken: likeBurstToken
+                        likeToken: likeBurstToken,
+                        spectrum: player.spectrum,
+                        currentTime: player.currentTime
                     )
                     .frame(maxWidth: 320)
                     titles

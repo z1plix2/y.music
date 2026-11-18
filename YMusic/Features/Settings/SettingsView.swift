@@ -24,6 +24,7 @@ struct SettingsView: View {
     @AppStorage("beatHapticsEnabled") private var beatHapticsEnabled = false
     @AppStorage("beatHapticsWarningShown") private var beatHapticsWarningShown = false
     @AppStorage("useWaveformScrubber") private var useWaveformScrubber = true
+    @AppStorage("useRealSpectrum") private var useRealSpectrum = true
     @State private var showBeatHapticsAlert = false
 
     var body: some View {
@@ -271,6 +272,14 @@ struct SettingsView: View {
                         "Форма волны при скраббинге",
                         subtitle: "Столбики вместо слайдера",
                         isOn: $useWaveformScrubber
+                    )
+
+                    Divider().overlay(tone.border.opacity(0.12))
+
+                    toggleRow(
+                        "Спектр-визуализатор",
+                        subtitle: "Реальный FFT вместо частиц",
+                        isOn: $useRealSpectrum
                     )
                 }
             }

@@ -24,6 +24,10 @@ struct WaveVisualizer: View {
     var likeToken: Int = 0
     /// Время кадра для офскрин-рендера.
     var fixedTime: Double?
+    /// Реальный спектр: если загружен, рисуем 64 полосы вместо частиц.
+    var spectrum: SpectrumData?
+    /// Позиция трека для спектра.
+    var currentTime: Double = 0
 
     @Environment(\.contentTone) private var tone
     @Environment(\.scenePhase) private var scenePhase
@@ -31,6 +35,8 @@ struct WaveVisualizer: View {
     @State private var bursts: [ParticleBurst] = []
     /// Плеер закрыт, но view ещё в памяти — кадры не нужны.
     @State private var isVisible = false
+    /// Привязка «позиция трека → момент на часах» для плавности между тиками.
+    @State private var anchorDate = Date()
 
     private static let count = 96
 
@@ -44,6 +50,17 @@ struct WaveVisualizer: View {
             if let fixedTime {
                 Canvas { context, size in
                     drawParticles(in: context, size: size, time: fixedTime)
+                }
+            } else if let spectrum, !spectrum.isEmpty {
+                TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: isPaused)) { timeline in
+                    Canvas { context, size in
+                        drawSpectrum(
+                            spectrum,
+                            in: context,
+                            size: size,
+                            time: spectrumTime(at: timeline.date)
+                        )
+                    }
                 }
             } else {
                 // 24 FPS: для медленных частиц разницы не видно, а кадров
@@ -63,6 +80,7 @@ struct WaveVisualizer: View {
         .accessibilityHidden(true)
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
+        .onChange(of: currentTime) { _ in anchorDate = Date() }
         .task(id: artworkURL) {
             guard let artworkURL else { return }
             loadedPalette = await ColorExtractor.shared.palette(
@@ -92,6 +110,51 @@ struct WaveVisualizer: View {
 
     private var secondaryColor: Color {
         palette == nil && loadedPalette == nil ? tone.secondary : activePalette.secondary.color
+    }
+
+    // MARK: - Спектр
+
+    private func spectrumTime(at date: Date) -> Double {
+        let elapsed = date.timeIntervalSince(anchorDate)
+        return currentTime + min(max(elapsed, 0), 0.4)
+    }
+
+    private func drawSpectrum(
+        _ spectrum: SpectrumData,
+        in context: GraphicsContext,
+        size: CGSize,
+        time: Double
+    ) {
+        guard size.width > 0, size.height > 0 else { return }
+
+        let values = spectrum.values(at: max(time, 0))
+        guard !values.isEmpty else { return }
+
+        let count = values.count
+        let slot = size.width / CGFloat(count)
+        let gap = max(slot * 0.24, 0.5)
+        let barWidth = max(slot - gap, 0.8)
+
+        let shading = GraphicsContext.Shading.linearGradient(
+            Gradient(colors: [primaryColor, secondaryColor]),
+            startPoint: CGPoint(x: 0, y: size.height),
+            endPoint: CGPoint(x: size.width, y: size.height)
+        )
+
+        for index in 0..<count {
+            let level = CGFloat(values[index])
+            let height = max(2, level * (size.height - 4))
+            let rect = CGRect(
+                x: CGFloat(index) * slot + gap / 2,
+                y: size.height - height,
+                width: barWidth,
+                height: height
+            )
+            context.fill(
+                Path(roundedRect: rect, cornerRadius: barWidth / 2),
+                with: shading
+            )
+        }
     }
 
     // MARK: - Частицы

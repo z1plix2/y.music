@@ -31,6 +31,9 @@ final class AudioPlayer: ObservableObject {
     /// Форма волны текущего трека для скраббера. Пустой массив — скелетон.
     @Published private(set) var waveform: [Float] = []
 
+    /// Реальный спектр текущего трека для визуализатора.
+    @Published private(set) var spectrum: SpectrumData?
+
     /// Конец сна-таймера; `nil`, если таймер не запущен.
     @Published private(set) var sleepTimerEndsAt: Date?
 
@@ -159,7 +162,7 @@ final class AudioPlayer: ObservableObject {
                 if waveform.isEmpty,
                    let track = queue.currentTrack,
                    let currentStreamURL {
-                    startWaveform(for: track, url: currentStreamURL)
+                    startAnalysis(for: track, url: currentStreamURL)
                 }
             }
 
@@ -576,7 +579,7 @@ final class AudioPlayer: ObservableObject {
             guard generation == loadGeneration, !Task.isCancelled else { return }
 
             currentStreamURL = stream.url
-            startWaveform(for: track, url: stream.url)
+            startAnalysis(for: track, url: stream.url)
 
             if case .preview = stream {
                 notice = "Без Plus доступно только превью"
@@ -969,24 +972,30 @@ private func startBeatHaptics(for url: URL) {
     // MARK: - Форма волны
 
     /// Анализ идёт параллельно воспроизведению и не блокирует старт трека.
-    /// Результат — 200 бинов; если трек уже слушали, они придут из кэша.
-    private func startWaveform(for track: Track, url: URL) {
+    /// Один проход даёт и 200 бинов волны, и спектр; если трек уже слушали,
+    /// результаты придут из кэша.
+    private func startAnalysis(for track: Track, url: URL) {
         waveformTask?.cancel()
         waveform = []
+        spectrum = nil
+
+        let needsSpectrum = UserDefaults.standard.object(forKey: "useRealSpectrum") as? Bool ?? true
 
         waveformTask = Task { [weak self] in
             do {
-                let bins = try await WaveformExtractor.shared.waveform(
+                let analysis = try await WaveformExtractor.shared.analysis(
                     for: track,
-                    streamURL: url
+                    streamURL: url,
+                    needsSpectrum: needsSpectrum
                 )
                 guard !Task.isCancelled else { return }
-                self?.waveform = bins
+                self?.waveform = analysis.waveform
+                self?.spectrum = analysis.spectrum
             } catch is CancellationError {
                 return
             } catch {
                 guard let self else { return }
-                self.logger.debug("Форма волны: \(error.localizedDescription, privacy: .public)")
+                self.logger.debug("Анализ трека: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -1002,6 +1011,7 @@ private func startBeatHaptics(for url: URL) {
         isBuffering = false
         pendingSeek = nil
         waveform = []
+        spectrum = nil
         nowPlaying.setCommandsEnabled(false)
         updateWidgetSnapshot(reload: true)
     }
