@@ -13,6 +13,7 @@ struct DynamicBackground<Content: View>: View {
 
     @State private var palette: ColorPalette
     @State private var isDrifting = false
+    @Environment(\.scenePhase) private var scenePhase
 
     init(
         imageURL: URL?,
@@ -42,7 +43,17 @@ struct DynamicBackground<Content: View>: View {
         }
         .environment(\.contentTone, palette.contentTone)
         .task(id: cacheKey) { await loadPalette() }
-        .onAppear { isDrifting = true }
+        .onAppear { updateDrift() }
+        .onDisappear { isDrifting = false }
+        .onChange(of: scenePhase) { _ in updateDrift() }
+    }
+
+    /// Дрейф пятен — бесконечная анимация. В фоне и когда экран ушёл
+    /// с глаз, она не нужна: останавливаем, чтобы не жечь GPU вхолостую.
+    private func updateDrift() {
+        let shouldDrift = scenePhase == .active
+        guard isDrifting != shouldDrift else { return }
+        isDrifting = shouldDrift
     }
 
     // MARK: - Слои

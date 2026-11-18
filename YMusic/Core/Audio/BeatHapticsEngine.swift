@@ -33,9 +33,9 @@ enum BeatHapticsSupport {
 /// и весь движок тихо выключается.
 @MainActor
 final class BeatHapticsEngine {
-    /// Тик опроса позиции плеера: 20 мс. Точность попадания в бит выше,
-    /// чем воспринимаемая задержка Taptic Engine.
-    private static let tickSeconds: UInt64 = 20_000_000
+    /// Тик опроса позиции плеера: 50 мс. Для попадания в бит хватает,
+    /// а CPU-пробуждений в 2.5 раза меньше, чем на 20 мс.
+    private static let tickSeconds: UInt64 = 50_000_000
 
     private let logger = Logger(subsystem: "com.example.ymusic", category: "BeatHaptics")
 
@@ -71,16 +71,34 @@ final class BeatHapticsEngine {
         }
     }
 
+    /// Пауза: гасим и тик, и сам haptic-движок. Держать CHHapticEngine
+    /// активным на паузе незачем — это лишние пробуждения и нагрев.
     func pause() {
         isPaused = true
+        ticker?.cancel()
+        ticker = nil
+        hapticEngine?.stop(completionHandler: nil)
+        hapticEngine = nil
+    }
+
+    /// Уход в фон: трек может играть дальше, но вибро в кармане не нужно.
+    /// События и временный файл остаются, чтобы возврат был мгновенным.
+    func suspend() {
+        pause()
     }
 
     func resume() {
+        guard !events.isEmpty, BeatHapticsSupport.isSupported else { return }
         isPaused = false
 
         let time = timeProvider?() ?? 0
         lastTickTime = time
         cursor = firstEventIndex(at: time)
+
+        if hapticEngine == nil {
+            hapticEngine = makeEngine()
+        }
+        startTicker()
     }
 
     func stop() {
@@ -96,13 +114,16 @@ final class BeatHapticsEngine {
 
         hapticEngine?.stop(completionHandler: nil)
         hapticEngine = nil
-
-        if let fileURL {
-            try? FileManager.default.removeItem(at: fileURL)
-            self.fileURL = nil
-        }
+        fileURL = nil
 
         isStopping = false
+    }
+
+    deinit {
+        generation += 1
+        ticker?.cancel()
+        analysisTask?.cancel()
+        hapticEngine?.stop(completionHandler: nil)
     }
 
     // MARK: - Подготовка
@@ -110,7 +131,7 @@ final class BeatHapticsEngine {
     private func prepare(url: URL, generation: Int) async {
         let localURL: URL
         do {
-            localURL = try await download(url: url)
+            localURL = try await AnalysisFileStore.shared.localFile(for: url)
         } catch is CancellationError {
             return
         } catch {
@@ -118,10 +139,7 @@ final class BeatHapticsEngine {
             return
         }
 
-        guard generation == self.generation, !Task.isCancelled else {
-            try? FileManager.default.removeItem(at: localURL)
-            return
-        }
+        guard generation == self.generation, !Task.isCancelled else { return }
         fileURL = localURL
 
         let analysis = Task.detached(priority: .utility) {
@@ -134,26 +152,8 @@ final class BeatHapticsEngine {
         events = detected
         logger.info("Вибро: размечено \(detected.count, privacy: .public) событий")
 
-        guard BeatHapticsSupport.isSupported else { return }
+        guard BeatHapticsSupport.isSupported, !isPaused else { return }
         startTicker()
-    }
-
-    private func download(url: URL) async throws -> URL {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 30
-        let (temporary, response) = try await URLSession.shared.download(for: request)
-
-        if let http = response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode) {
-            throw APIError.http(status: http.statusCode, payload: nil)
-        }
-
-        let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("beat-\(UUID().uuidString).\(ext)")
-
-        try FileManager.default.moveItem(at: temporary, to: target)
-        return target
     }
 
     // MARK: - Пульс
@@ -208,7 +208,8 @@ final class BeatHapticsEngine {
         do {
             let engine = try CHHapticEngine()
             engine.playsHapticsOnly = true
-            engine.isAutoShutdownEnabled = false
+            // Движок сам уснёт после простоя; пауза и фон его и так гасят.
+            engine.isAutoShutdownEnabled = true
 
             engine.stoppedHandler = { [weak self] reason in
                 Task { @MainActor in

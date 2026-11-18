@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// Режим плеера. Хранится строкой в `@AppStorage`, чтобы пережить перезапуск.
@@ -9,8 +10,9 @@ enum PlayerMode: String {
 /// Виниловая версия плеера: пластинка с обложкой в центре, вращение при
 /// воспроизведении, тонарм и прогресс по внешнему кольцу.
 ///
-/// Вращение — один `Timer` на 30 Гц и `@State rotation`, без опроса
+/// Вращение — один `Timer` на 20 Гц и `@State rotation`, без опроса
 /// `currentTime`: иначе перерисовка шла бы дважды в секунду по всему экрану.
+/// Таймер живёт только пока view видим и приложение активно.
 struct VinylPlayerView: View {
     let palette: ColorPalette
     let onClose: () -> Void
@@ -19,6 +21,7 @@ struct VinylPlayerView: View {
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var likes: LikeStore
     @Environment(\.contentTone) private var tone
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var rotation: Double = 0
     @State private var needleDown = false
@@ -26,8 +29,11 @@ struct VinylPlayerView: View {
     @State private var sharePayload: SharePayload?
     @State private var isPreparingShare = false
     @State private var isQueuePresented = false
+    @State private var dialConnection: AnyCancellable?
+    @State private var isVisible = false
 
-    private let dial = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
+    /// 20 Гц вместо 30: вращение диска плавное, CPU-пробуждений меньше.
+    private let dial = Timer.publish(every: 1.0 / 20.0, on: .main, in: .common).autoconnect()
 
     private var track: Track? { player.currentTrack }
 
@@ -59,21 +65,27 @@ struct VinylPlayerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onReceive(dial) { _ in
-            guard player.isPlaying else { return }
-            rotation += 3
-            if rotation >= 360 { rotation -= 360 }
-        }
         .onAppear {
+            isVisible = true
             if player.isPlaying {
                 needleDown = true
                 Haptics.light()
             }
+            updateDial()
+        }
+        .onDisappear {
+            isVisible = false
+            dialConnection?.cancel()
+            dialConnection = nil
         }
         .onChange(of: player.isPlaying) { playing in
             withAnimation(.spring(response: 0.8, dampingFraction: 0.6)) {
                 needleDown = playing
             }
+            updateDial()
+        }
+        .onChange(of: scenePhase) { _ in
+            updateDial()
         }
         .sheet(item: $sharePayload) { item in
             ActivityView(items: item.items)
@@ -81,6 +93,26 @@ struct VinylPlayerView: View {
         .sheet(isPresented: $isQueuePresented) {
             QueueView()
                 .environmentObject(player)
+        }
+    }
+
+    // MARK: - Вращение
+
+    /// Таймер живёт только когда view видим, приложение активно и трек играет.
+    /// В фоне и под открытым sheet он отключён совсем, а не «тикает вхолостую».
+    private func updateDial() {
+        let shouldRun = isVisible && scenePhase == .active && player.isPlaying
+
+        guard shouldRun else {
+            dialConnection?.cancel()
+            dialConnection = nil
+            return
+        }
+
+        guard dialConnection == nil else { return }
+        dialConnection = dial.sink { _ in
+            rotation += 4.5
+            if rotation >= 360 { rotation -= 360 }
         }
     }
 
