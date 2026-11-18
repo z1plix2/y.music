@@ -94,7 +94,7 @@ private struct OAuthWebView: UIViewRepresentable {
                 return
             }
 
-            if url.host == AuthConfig.redirectHost {
+            if isOAuthReturn(url) {
                 decisionHandler(.cancel)
                 if let token = YandexOAuthRedirect.token(from: url) {
                     parent.onToken(token)
@@ -114,6 +114,29 @@ private struct OAuthWebView: UIViewRepresentable {
             }
 
             decisionHandler(.allow)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            let nsError = error as NSError
+            // Отменённая навигация — это наш перехват редиректа, не ошибка.
+            if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+                return
+            }
+            parent.onError(error.localizedDescription)
+        }
+
+        /// Редирект после согласия: `music.yandex.ru/#access_token=...`.
+        /// Проверяем и хост, и фрагмент — на случай зеркал домена.
+        private func isOAuthReturn(_ url: URL) -> Bool {
+            if url.host == AuthConfig.redirectHost {
+                return true
+            }
+            guard let fragment = url.fragment else { return false }
+            return fragment.contains("access_token=") || fragment.contains("error=")
         }
     }
 }
