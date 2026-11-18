@@ -241,8 +241,14 @@ struct AlbumDetailView: View {
             track: track,
             isCurrent: isCurrent,
             isPlaying: isCurrent && player.isPlaying,
-            onTap: { play(tracks, from: index) }
+            onTap: { play(tracks, from: index) },
+            onOpenArtist: artistAction(for: track)
         )
+    }
+
+    private func artistAction(for track: Track) -> (() -> Void)? {
+        guard let artist = openableArtist(track.artists ?? []) else { return nil }
+        return { openedArtist = artist }
     }
 
     private func play(_ tracks: [Track], from index: Int) {

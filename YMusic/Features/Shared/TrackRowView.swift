@@ -16,7 +16,15 @@ struct TrackRowView: View {
     var onUnlike: ((Track) -> Void)? = nil
 
     @EnvironmentObject private var likes: LikeStore
+    @EnvironmentObject private var player: AudioPlayer
     @Environment(\.contentTone) private var tone
+
+    @State private var sharePayload: SharePayload?
+    @State private var isPreparingShare = false
+
+    /// Тап по «К артисту» в меню. Не задан — пункт скрыт: у трека из
+    /// истории id артиста равен 0, ручки для него нет.
+    var onOpenArtist: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -65,6 +73,70 @@ struct TrackRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
+        .contextMenu { contextMenuContent }
+        .sheet(item: $sharePayload) { payload in
+            ActivityView(items: payload.items)
+        }
+    }
+
+    // MARK: - Контекстное меню
+
+    @ViewBuilder
+    private var contextMenuContent: some View {
+        Button {
+            Haptics.selection()
+            player.playNext(track)
+        } label: {
+            Label("Играть следующим", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+
+        Button {
+            Haptics.selection()
+            player.addToQueue(track)
+        } label: {
+            Label("В очередь", systemImage: "text.badge.plus")
+        }
+
+        Divider()
+
+        if let onOpenArtist {
+            Button {
+                Haptics.selection()
+                onOpenArtist()
+            } label: {
+                Label("К артисту", systemImage: "person")
+            }
+        }
+
+        Button {
+            Task { await likes.toggle(track) }
+        } label: {
+            Label(
+                likes.isLiked(track.id) ? "Убрать из лайков" : "В лайки",
+                systemImage: likes.isLiked(track.id) ? "heart.slash" : "heart"
+            )
+        }
+
+        Button {
+            prepareShare()
+        } label: {
+            Label(
+                isPreparingShare ? "Готовим открытку..." : "Поделиться",
+                systemImage: "square.and.arrow.up"
+            )
+        }
+        .disabled(isPreparingShare)
+    }
+
+    private func prepareShare() {
+        guard !isPreparingShare else { return }
+        isPreparingShare = true
+
+        Task { @MainActor in
+            let image = await ShareCardRenderer.image(for: track)
+            isPreparingShare = false
+            sharePayload = SharePayload(items: [image])
+        }
     }
 
     private var cover: some View {
