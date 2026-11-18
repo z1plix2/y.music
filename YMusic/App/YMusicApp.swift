@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 @main
@@ -30,6 +31,11 @@ struct RootView: View {
 
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Трек из deep link, пришедший до восстановления сессии.
+    @State private var pendingTrackID: Int?
+
+    private let logger = Logger(subsystem: "com.example.ymusic", category: "DeepLink")
+
     var body: some View {
         ZStack {
             switch auth.state {
@@ -52,7 +58,13 @@ struct RootView: View {
         .environmentObject(player)
         .environmentObject(waveSession)
         .animation(.easeInOut(duration: 0.35), value: auth.state)
-        .task { await auth.restore() }
+        .task {
+            await auth.restore()
+            resolvePendingDeepLink()
+        }
+        .onOpenURL { url in
+            handleDeepLink(url)
+        }
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .background:
@@ -73,6 +85,62 @@ struct RootView: View {
 
             @unknown default:
                 break
+            }
+        }
+    }
+
+    // MARK: - Deep link
+
+    /// `ymusic://track/{id}` из QR-кода открытки.
+    ///
+    /// Трек ищем в уже загруженной очереди и недавних, иначе догружаем точечно
+    /// (`/tracks?track-ids=`). Если сессия ещё восстанавливается, id ждёт
+    /// в `pendingTrackID` — на холодном старте `onOpenURL` приходит раньше
+    /// готовности плеера.
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "ymusic", url.host == "track" else { return }
+
+        let rawID = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let trackID = Int(rawID) else {
+            logger.debug("Ссылка без числового id: \(url.absoluteString, privacy: .public)")
+            return
+        }
+
+        guard case .signedIn = auth.state else {
+            pendingTrackID = trackID
+            return
+        }
+
+        openTrack(trackID: trackID)
+    }
+
+    private func resolvePendingDeepLink() {
+        guard let trackID = pendingTrackID else { return }
+        pendingTrackID = nil
+        openTrack(trackID: trackID)
+    }
+
+    private func openTrack(trackID: Int) {
+        if let existing = player.queue.tracks.first(where: { $0.id == trackID }) {
+            player.play(track: existing, in: player.queue.tracks)
+            return
+        }
+
+        if let recent = player.recents.first(where: { $0.id == trackID }) {
+            player.play(track: recent, in: [recent])
+            return
+        }
+
+        Task {
+            do {
+                let tracks = try await APIManager.shared.tracks(ids: [trackID])
+                guard let track = tracks.first else {
+                    logger.debug("Трек \(trackID) не найден")
+                    return
+                }
+                player.play(track: track, in: [track])
+            } catch {
+                logger.error("Deep link: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

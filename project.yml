@@ -56,3 +56,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
         NSMicrophoneUsageDescription: "YMusic слушает, чтобы распознать трек вокруг вас"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.example.ymusic.track
+            CFBundleURLSchemes:
+              - ymusic

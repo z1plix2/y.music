@@ -12,6 +12,8 @@ struct NowPlayingView: View {
     @State private var scrubValue: Double?
     @StateObject private var shazam = ShazamRecognizer()
     @State private var isShazamPresented = false
+    @State private var shareImage: ShareImage?
+    @State private var isPreparingShare = false
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -37,6 +39,9 @@ struct NowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: isShazamPresented)
+        .sheet(item: $shareImage) { item in
+            ActivityView(items: [item.image])
+        }
     }
 
     private var content: some View {
@@ -77,14 +82,60 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            GlassIconButton("mic", label: "Распознать трек") {
-                Haptics.light()
-                isShazamPresented = true
-                Task { await shazam.start() }
+            HStack(spacing: 8) {
+                shareButton
+
+                GlassIconButton("mic", label: "Распознать трек") {
+                    Haptics.light()
+                    isShazamPresented = true
+                    Task { await shazam.start() }
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// Открытка рендерится в фоне: загрузка обложки и палитры может занять
+    /// кадр-другой, поэтому на кнопке виден прогресс, а не «залипание».
+    @ViewBuilder
+    private var shareButton: some View {
+        if let track {
+            Button {
+                Haptics.light()
+                prepareShare(track)
+            } label: {
+                ZStack {
+                    if isPreparingShare {
+                        ProgressView()
+                            .tint(tone.primary)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(tone.primary)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .background { Circle().fill(Color.white.opacity(0.08)) }
+                .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                }
+            }
+            .buttonStyle(PressableStyle(scale: 0.9))
+            .disabled(isPreparingShare)
+            .accessibilityLabel("Поделиться треком")
+        }
+    }
+
+    private func prepareShare(_ track: Track) {
+        guard !isPreparingShare else { return }
+        isPreparingShare = true
+
+        Task {
+            let image = await ShareCardRenderer.image(for: track)
+            isPreparingShare = false
+            shareImage = ShareImage(image: image)
+        }
     }
 
     // MARK: - Обложка и подписи
