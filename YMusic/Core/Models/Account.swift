@@ -11,7 +11,7 @@ struct Account: Codable, Equatable {
     let fullName: String?
     let plus: PlusStatus?
 
-    struct PlusStatus: Decodable, Equatable {
+    struct PlusStatus: Codable, Equatable {
         let hasPlus: Bool?
         let isTutorialCompleted: Bool?
     }
