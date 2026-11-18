@@ -46,8 +46,12 @@ final class PlaybackStateStore {
 
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.example.ymusic", category: "PlaybackState")
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+    /// Кодирование очереди до 200 треков — не работа для главного потока.
+    /// Серийная очередь сохраняет порядок записей.
+    private let persistQueue = DispatchQueue(
+        label: "com.example.ymusic.playback-state",
+        qos: .utility
+    )
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -56,25 +60,32 @@ final class PlaybackStateStore {
     // MARK: - Очередь
 
     func save(_ snapshot: StoredPlayback, userID: Int) {
-        guard let data = try? encoder.encode(snapshot) else { return }
-        defaults.set(data, forKey: Self.queueKey(userID))
+        let defaults = self.defaults
+        persistQueue.async {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            defaults.set(data, forKey: Self.queueKey(userID))
+        }
     }
 
     func load(userID: Int) -> StoredPlayback? {
         guard let data = defaults.data(forKey: Self.queueKey(userID)) else { return nil }
-        return try? decoder.decode(StoredPlayback.self, from: data)
+        return try? JSONDecoder().decode(StoredPlayback.self, from: data)
     }
 
     // MARK: - Недавние
 
     func saveRecents(_ tracks: [StoredTrack], userID: Int) {
-        guard let data = try? encoder.encode(Array(tracks.prefix(20))) else { return }
-        defaults.set(data, forKey: Self.recentsKey(userID))
+        let defaults = self.defaults
+        let slice = Array(tracks.prefix(20))
+        persistQueue.async {
+            guard let data = try? JSONEncoder().encode(slice) else { return }
+            defaults.set(data, forKey: Self.recentsKey(userID))
+        }
     }
 
     func loadRecents(userID: Int) -> [StoredTrack] {
         guard let data = defaults.data(forKey: Self.recentsKey(userID)) else { return [] }
-        return (try? decoder.decode([StoredTrack].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([StoredTrack].self, from: data)) ?? []
     }
 
     func clear(userID: Int) {

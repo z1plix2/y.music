@@ -95,6 +95,7 @@ struct WaveformScrubber: View {
             }
         }
         .frame(width: width)
+        .drawingGroup()
         .allowsHitTesting(false)
     }
 
