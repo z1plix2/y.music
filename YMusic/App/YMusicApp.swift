@@ -76,7 +76,7 @@ struct RootView: View {
                     .transition(.opacity)
 
             case .signedIn(let account):
-                MainView(account: account)
+                MainView(account: account, player: player)
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
             }
         }
@@ -90,6 +90,13 @@ struct RootView: View {
         .task {
             await auth.restore()
             resolvePendingDeepLink()
+        }
+        .task {
+            // LRU-уборка кэша спектра — фоном, через 5 секунд после старта,
+            // чтобы не конкурировать с первым экраном за диск.
+            Task.detached(priority: .utility) {
+                await SpectrumCache.shared.warmUp()
+            }
         }
         .onOpenURL { url in
             handleDeepLink(url)

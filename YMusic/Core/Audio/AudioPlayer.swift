@@ -899,6 +899,10 @@ final class AudioPlayer: ObservableObject {
         guard seconds.isFinite, seconds >= 0 else { return }
         currentTime = seconds
 
+        // Списки слушают этот срез, а не сам плеер: иначе каждый тик
+        // прогресса перерисовывал бы каталог и ленты.
+        PlaybackHighlight.shared.sync(trackID: queue.currentTrack?.id, isPlaying: isPlaying)
+
         // Стрик и часы растут только по реально проигранному времени:
         // разница между тиками, а не фиксированные 0.5 с (после seek она
         // бывает большой, её отбрасываем).
@@ -993,6 +997,7 @@ final class AudioPlayer: ObservableObject {
     }
 
     private func syncNowPlaying() {
+        PlaybackHighlight.shared.sync(trackID: queue.currentTrack?.id, isPlaying: isPlaying)
         // Повторный `install()` безопасен (внутри проверка на пустой список)
         // и нужен после `teardown()`, который снял remote-таргеты:
         // иначе пульт и локскрин перестанут управлять плеером до перезапуска.
@@ -1212,6 +1217,7 @@ private func startBeatHaptics(for url: URL) {
         pendingSeek = nil
         waveform = []
         spectrum = nil
+        PlaybackHighlight.shared.sync(trackID: nil, isPlaying: false)
         nowPlaying.setCommandsEnabled(false)
         updateWidgetSnapshot(reload: true)
     }

@@ -1,3 +1,4 @@
+import Combine
 import OSLog
 import SwiftUI
 import UIKit
@@ -10,9 +11,11 @@ import UIKit
 /// environment.
 struct MainView: View {
     let account: Account
+    /// Плеер приходит значением, а не через `@EnvironmentObject`: иначе любой
+    /// тик `currentTime` (2 раза в секунду) перерисовывал бы весь экран.
+    let player: AudioPlayer
 
     @EnvironmentObject private var auth: AuthService
-    @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var waveSession: WaveSessionController
 
     @StateObject private var catalog: CatalogViewModel
@@ -28,39 +31,31 @@ struct MainView: View {
     private let logger = Logger(subsystem: "com.example.ymusic", category: "MainView")
 
     @MainActor
-    init(account: Account) {
+    init(account: Account, player: AudioPlayer) {
         self.account = account
+        self.player = player
         _catalog = StateObject(wrappedValue: CatalogViewModel(userID: account.uid))
         _likes = StateObject(wrappedValue: LikeStore(userID: account.uid))
         _wave = StateObject(wrappedValue: WaveViewModel())
     }
 
     var body: some View {
-        DynamicBackground(
-            imageURL: backgroundImageURL,
-            cacheKey: backgroundKey,
-            fallback: .brand
-        ) {
+        MainBackgroundHost(player: player, catalog: catalog) {
             ZStack(alignment: .bottom) {
                 MainScrollContent(
                     account: account,
+                    player: player,
                     catalog: catalog,
                     wave: wave,
                     route: $route
                 )
 
-                if player.currentTrack != nil {
-                    MiniPlayerView {
-                        route = .player
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                MiniPlayerHost(player: player) {
+                    route = .player
                 }
             }
         }
         .environmentObject(likes)
-        .animation(.easeInOut(duration: 0.25), value: player.currentTrack?.id)
         .sheet(item: $route) { presented in
             destination(for: presented, onClose: { route = nil })
                 .environmentObject(auth)
@@ -208,16 +203,37 @@ struct MainView: View {
         }
     }
 
-    // MARK: - Фон
-
-    private var backgroundImageURL: URL? {
-        player.currentTrack?.artworkURL ?? catalog.heroArtwork?.url
     }
 
-    private var backgroundKey: String {
-        player.currentTrack?.artworkURL?.absoluteString
+// MARK: - Фон
+
+/// Фон вынесен в отдельную структуру: `player.currentTrack` и `heroArtwork`
+/// читаются здесь, поэтому смена трека не перерисовывает весь `MainView`.
+private struct MainBackgroundHost<Content: View>: View {
+    let player: AudioPlayer
+    @ObservedObject var catalog: CatalogViewModel
+    let content: Content
+
+    init(player: AudioPlayer, catalog: CatalogViewModel, @ViewBuilder content: () -> Content) {
+        self.player = player
+        self.catalog = catalog
+        self.content = content()
+    }
+
+    var body: some View {
+        let trackURL = player.currentTrack?.artworkURL
+        let heroURL = catalog.heroArtwork?.url
+        let key = trackURL?.absoluteString
             ?? catalog.heroArtwork?.key
-            ?? "account-\(account.uid)"
+            ?? "brand"
+
+        DynamicBackground(
+            imageURL: trackURL ?? heroURL,
+            cacheKey: key,
+            fallback: .brand
+        ) {
+            content
+        }
     }
 }
 
@@ -250,57 +266,36 @@ enum MainRoute: Identifiable {
 
 // MARK: - Контент
 
+/// Только раскладка. В теле нет ни одного чтения published-состояния:
+/// каждая секция сама подписывается на то, что ей нужно. Поэтому смена
+/// трека, тик прогресса или догрузка каталога не перерисовывают весь скролл.
 private struct MainScrollContent: View {
     let account: Account
-    @ObservedObject var catalog: CatalogViewModel
-    @ObservedObject var wave: WaveViewModel
+    let player: AudioPlayer
+    let catalog: CatalogViewModel
+    let wave: WaveViewModel
     @Binding var route: MainRoute?
-
-    @EnvironmentObject private var player: AudioPlayer
-    @EnvironmentObject private var waveSession: WaveSessionController
-    @EnvironmentObject private var stats: ListeningStatsStore
-    @Environment(\.contentTone) private var tone
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
-                header
+                MainHeaderSection(account: account, catalog: catalog, route: $route)
 
-                if catalog.isRefreshing {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .tint(tone.secondary)
+                MainContinueSection(player: player)
 
-                        Text("Обновляем…")
-                            .font(.caption)
-                            .foregroundStyle(tone.secondary)
+                MainWaveSection(wave: wave, player: player)
 
-                        Spacer(minLength: 0)
-                    }
-                    .transition(.opacity)
-                }
-
-                if showsContinueCard {
-                    continueCard
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-
-                waveCard
-
-                if !player.recents.isEmpty {
-                    recentsSection
-                }
+                MainRecentsSection(player: player)
 
                 CatalogView(
                     viewModel: catalog,
+                    player: player,
                     onOpenLiked: { route = .liked },
                     onOpenPlaylist: { route = .playlist($0) }
                 )
 
-                footer
+                MainFooterSection(route: $route)
             }
-            .animation(.easeInOut(duration: 0.25), value: showsContinueCard)
-            .animation(.easeInOut(duration: 0.2), value: catalog.isRefreshing)
             .padding(.horizontal, 20)
             .padding(.top, 14)
             .padding(.bottom, 140)
@@ -319,8 +314,56 @@ private struct MainScrollContent: View {
         async let waveRefresh: Void = wave.retry()
         _ = await (feed, waveRefresh)
     }
+}
 
-    // MARK: Шапка
+/// Мини-плеер: единственное место `MainView`, подписанное на сам плеер.
+private struct MiniPlayerHost: View {
+    let player: AudioPlayer
+    var onOpen: () -> Void
+
+    var body: some View {
+        Group {
+            if player.currentTrack != nil {
+                MiniPlayerView(onOpen: onOpen)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: player.currentTrack?.id)
+    }
+}
+
+// MARK: - Шапка
+
+private struct MainHeaderSection: View {
+    let account: Account
+    @ObservedObject var catalog: CatalogViewModel
+    @Binding var route: MainRoute?
+
+    @EnvironmentObject private var stats: ListeningStatsStore
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+
+            if catalog.isRefreshing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(tone.secondary)
+
+                    Text("Обновляем...")
+                        .font(.caption)
+                        .foregroundStyle(tone.secondary)
+
+                    Spacer(minLength: 0)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: catalog.isRefreshing)
+    }
 
     /// Стрик: маленький чип у имени, тап открывает статистику.
     private var streakChip: some View {
@@ -440,112 +483,127 @@ private struct MainScrollContent: View {
         let first = source.first.map(String.init) ?? "Y"
         return first.uppercased()
     }
+}
 
-    // MARK: Продолжить слушать
+// MARK: - Продолжить слушать
+
+private struct MainContinueSection: View {
+    @ObservedObject var player: AudioPlayer
+
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        Group {
+            if let track = player.currentTrack, showsCard {
+                card(track)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showsCard)
+    }
 
     /// Пауза — единственный случай, когда карточка нужна: при `.playing`
     /// трек уже виден в MiniPlayer, при `.idle`/`.failed`/пустой очереди
     /// продолжать нечего. `.preparing` тоже не показываем — иначе карточка
     /// мигает на каждом переключении.
-    private var showsContinueCard: Bool {
+    private var showsCard: Bool {
         guard player.currentTrack != nil, !player.queue.isEmpty else { return false }
         if case .paused = player.status { return true }
         return false
     }
 
-    @ViewBuilder
-    private var continueCard: some View {
-        if let track = player.currentTrack {
-            GlassCard(cornerRadius: 20, padding: 12) {
-                HStack(spacing: 12) {
-                    CachedAsyncImage(url: track.artworkURL) {
-                        ZStack {
-                            Color.white.opacity(0.08)
-                            Image(systemName: "music.note")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.3))
-                        }
+    private func card(_ track: Track) -> some View {
+        GlassCard(cornerRadius: 20, padding: 12) {
+            HStack(spacing: 12) {
+                CachedAsyncImage(url: track.artworkURL) {
+                    ZStack {
+                        Color.white.opacity(0.08)
+                        Image(systemName: "music.note")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
                     }
-                    .frame(width: 44, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(track.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(tone.primary)
-                            .lineLimit(1)
-
-                        Text(track.artistLine)
-                            .font(.caption2)
-                            .foregroundStyle(tone.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    // Иконка, а не Button: тап по всей карточке уже вызывает
-                    // togglePlayPause, вложенная кнопка дала бы двойной вызов.
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(tone.primary)
-                        .frame(width: 38, height: 38)
-                        .background {
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                                .overlay { Circle().fill(Color.black.opacity(0.14)) }
-                        }
-                        .overlay {
-                            Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                        }
-                        .accessibilityHidden(true)
                 }
-                .contentShape(Rectangle())
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(track.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(tone.primary)
+                        .lineLimit(1)
+
+                    Text(track.artistLine)
+                        .font(.caption2)
+                        .foregroundStyle(tone.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                // Иконка, а не Button: тап по всей карточке уже вызывает
+                // togglePlayPause, вложенная кнопка дала бы двойной вызов.
+                Image(systemName: "play.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tone.primary)
+                    .frame(width: 38, height: 38)
+                    .background {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay { Circle().fill(Color.black.opacity(0.14)) }
+                    }
+                    .overlay {
+                        Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    }
+                    .accessibilityHidden(true)
             }
-            .onTapGesture {
-                Haptics.light()
-                player.togglePlayPause()
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Продолжить: \(track.title)")
-            .accessibilityHint("Играть")
-            .accessibilityAction {
-                Haptics.light()
-                player.togglePlayPause()
-            }
+            .contentShape(Rectangle())
+        }
+        .onTapGesture {
+            Haptics.light()
+            player.togglePlayPause()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Продолжить: \(track.title)")
+        .accessibilityHint("Играть")
+        .accessibilityAction {
+            Haptics.light()
+            player.togglePlayPause()
         }
     }
+}
 
-    // MARK: Моя волна
+// MARK: - Моя волна
 
-    @ViewBuilder
-    private var waveCard: some View {
-        switch wave.state {
-        case .idle, .loading:
-            wavePlaceholder(isLoading: true)
+private struct MainWaveSection: View {
+    @ObservedObject var wave: WaveViewModel
+    let player: AudioPlayer
 
-        case .loaded(let tracks):
-            waveLoaded(tracks)
+    @EnvironmentObject private var waveSession: WaveSessionController
+    @ObservedObject private var highlight = PlaybackHighlight.shared
+    @Environment(\.contentTone) private var tone
 
-        case .failed(let error):
-            waveFailCard(error)
+    var body: some View {
+        Group {
+            switch wave.state {
+            case .idle, .loading:
+                placeholder(isLoading: true)
+
+            case .loaded(let tracks):
+                loaded(tracks)
+
+            case .failed(let error):
+                failCard(error)
+            }
         }
     }
 
     /// Витрина: до загрузки и при ошибке карточка остаётся «Моей волной»,
     /// но без выдуманных треков.
-    private func wavePlaceholder(isLoading: Bool) -> some View {
+    private func placeholder(isLoading: Bool) -> some View {
         GlassCard(cornerRadius: 30, padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    GlassChip("Моя волна", systemImage: "waveform")
-
-                    Spacer(minLength: 0)
-
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(tone.tertiary)
-                }
+                titleRow
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Поток под ваше настроение")
@@ -556,7 +614,7 @@ private struct MainScrollContent: View {
                     if isLoading {
                         HStack(spacing: 8) {
                             ProgressView().tint(tone.secondary)
-                            Text("Готовим подборку…")
+                            Text("Готовим подборку...")
                                 .font(.footnote)
                                 .foregroundStyle(tone.secondary)
                         }
@@ -572,25 +630,29 @@ private struct MainScrollContent: View {
         }
     }
 
-    private func waveLoaded(_ tracks: [Track]) -> some View {
+    private var titleRow: some View {
+        HStack(spacing: 10) {
+            GlassChip("Моя волна", systemImage: "waveform")
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "sparkles")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tone.tertiary)
+        }
+    }
+
+    private func loaded(_ tracks: [Track]) -> some View {
         GlassCard(cornerRadius: 30, padding: 20) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    GlassChip("Моя волна", systemImage: "waveform")
-
-                    Spacer(minLength: 0)
-
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(tone.tertiary)
-                }
+                titleRow
 
                 Text("Поток под ваше настроение")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(tone.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                waveChips
+                chips
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
@@ -599,7 +661,11 @@ private struct MainScrollContent: View {
                                 Haptics.light()
                                 waveSession.start(from: track)
                             } label: {
-                                waveTrackCard(track)
+                                WaveTrackCardView(
+                                    track: track,
+                                    isCurrent: highlight.trackID == track.id,
+                                    isPlaying: highlight.isPlaying
+                                )
                             }
                             .buttonStyle(PressableStyle(scale: 0.96))
                         }
@@ -622,24 +688,24 @@ private struct MainScrollContent: View {
     /// (`settingDiversity:discover`, `settingLanguage:russian`,
     /// `mood:calm`, `mood:energetic`); «спокойное» и «энергичное» —
     /// взаимоисключающие, потому что сервер принимает один `mood`.
-    private var waveChips: some View {
+    private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                waveChip("Только новое", isOn: waveSession.settings.onlyNew) {
+                chip("Только новое", isOn: waveSession.settings.onlyNew) {
                     updateSettings { $0.onlyNew.toggle() }
                 }
 
-                waveChip("По-русски", isOn: waveSession.settings.russian) {
+                chip("По-русски", isOn: waveSession.settings.russian) {
                     updateSettings { $0.russian.toggle() }
                 }
 
-                waveChip("Спокойное", isOn: waveSession.settings.mood == .calm) {
+                chip("Спокойное", isOn: waveSession.settings.mood == .calm) {
                     updateSettings { settings in
                         settings.mood = settings.mood == .calm ? nil : .calm
                     }
                 }
 
-                waveChip("Энергичное", isOn: waveSession.settings.mood == .energetic) {
+                chip("Энергичное", isOn: waveSession.settings.mood == .energetic) {
                     updateSettings { settings in
                         settings.mood = settings.mood == .energetic ? nil : .energetic
                     }
@@ -649,7 +715,7 @@ private struct MainScrollContent: View {
         }
     }
 
-    private func waveChip(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button {
             Haptics.selection()
             action()
@@ -707,10 +773,29 @@ private struct MainScrollContent: View {
         }
     }
 
-    private func waveTrackCard(_ track: Track) -> some View {
-        let isCurrent = player.currentTrack?.id == track.id
+    private func failCard(_ error: APIError) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            titleRow
+                .padding(.horizontal, 4)
 
-        return VStack(alignment: .leading, spacing: 8) {
+            ErrorStateCard(error: error, cornerRadius: 30) {
+                Task { await wave.retry() }
+            }
+        }
+    }
+}
+
+/// Карточка трека волны. Отдельная структура, чтобы подсветка текущего
+/// трека не заставляла перерисовываться всю карточку «Моей волны».
+private struct WaveTrackCardView: View {
+    let track: Track
+    let isCurrent: Bool
+    let isPlaying: Bool
+
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
             ZStack {
                 CachedAsyncImage(url: track.artworkURL) {
                     ZStack {
@@ -726,7 +811,7 @@ private struct MainScrollContent: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color.black.opacity(0.45))
 
-                    Image(systemName: player.isPlaying ? "waveform" : "pause.fill")
+                    Image(systemName: isPlaying ? "waveform" : "pause.fill")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)
                 }
@@ -746,35 +831,53 @@ private struct MainScrollContent: View {
                 .frame(minHeight: 30, alignment: .topLeading)
         }
     }
+}
 
-    private func waveFailCard(_ error: APIError) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                GlassChip("Моя волна", systemImage: "waveform")
+// MARK: - Недавнее
 
-                Spacer(minLength: 0)
+private struct MainRecentsSection: View {
+    let player: AudioPlayer
 
-                Image(systemName: "sparkles")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tone.tertiary)
-            }
-            .padding(.horizontal, 4)
+    /// Лента хранится в локальном состоянии: подписка на `$recents`
+    /// обновляет только эту секцию, а не весь скролл.
+    @State private var recents: [Track] = []
 
-            ErrorStateCard(error: error, cornerRadius: 30) {
-                Task { await wave.retry() }
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        Group {
+            if !tracks.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    GlassSectionHeader("Недавнее", subtitle: "Локально, последние треки")
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 12) {
+                            ForEach(tracks) { track in
+                                Button {
+                                    Haptics.light()
+                                    player.play(track: track, in: tracks)
+                                } label: {
+                                    card(track)
+                                }
+                                .buttonStyle(PressableStyle(scale: 0.96))
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
             }
         }
+        .onAppear { recents = player.recents }
+        .onReceive(player.$recents) { recents = $0 }
     }
-
-    // MARK: Недавнее
 
     /// Последние треки из `PlaybackStateStore` (заполняется в `AudioPlayer`
     /// при каждом `play`). Показываем 10 — в хранилище лежит до 20.
-    private var recentTracks: [Track] {
+    private var tracks: [Track] {
         var seen = Set<Int>()
         var result: [Track] = []
 
-        for track in player.recents.prefix(10) {
+        for track in recents.prefix(10) {
             guard seen.insert(track.id).inserted else { continue }
             result.append(track)
         }
@@ -782,33 +885,7 @@ private struct MainScrollContent: View {
         return result
     }
 
-    @ViewBuilder
-    private var recentsSection: some View {
-        let tracks = recentTracks
-
-        if !tracks.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-                GlassSectionHeader("Недавнее", subtitle: "Локально, последние треки")
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 12) {
-                        ForEach(tracks) { track in
-                            Button {
-                                Haptics.light()
-                                player.play(track: track, in: tracks)
-                            } label: {
-                                recentCard(track)
-                            }
-                            .buttonStyle(PressableStyle(scale: 0.96))
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-    }
-
-    private func recentCard(_ track: Track) -> some View {
+    private func card(_ track: Track) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             CachedAsyncImage(url: track.artworkURL) {
                 ZStack {
@@ -844,12 +921,19 @@ private struct MainScrollContent: View {
         .accessibilityLabel("\(track.title), \(track.artistLine)")
         .accessibilityHint("Играть")
     }
+}
 
-    // MARK: Подвал
+// MARK: - Подвал
 
-    private var footer: some View {
+private struct MainFooterSection: View {
+    @Binding var route: MainRoute?
+
+    @ObservedObject private var highlight = PlaybackHighlight.shared
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if player.currentTrack != nil {
+            if highlight.trackID != nil {
                 GlassButton(
                     "Открыть плеер",
                     systemImage: "play.circle",

@@ -15,8 +15,6 @@ struct TrackRowView: View {
     /// Вызывается после успешного снятия лайка: «Мне нравится» убирает строку.
     var onUnlike: ((Track) -> Void)? = nil
 
-    @EnvironmentObject private var likes: LikeStore
-    @EnvironmentObject private var player: AudioPlayer
     @Environment(\.contentTone) private var tone
 
     @State private var sharePayload: SharePayload?
@@ -56,15 +54,7 @@ struct TrackRowView: View {
             .accessibilityLabel("\(track.title), \(track.artistLine)")
 
             if showsLike {
-                LikeButton(
-                    isLiked: likes.isLiked(track.id),
-                    isPending: likes.isPending(track.id)
-                ) {
-                    Task {
-                        let nowLiked = await likes.toggle(track)
-                        if !nowLiked { onUnlike?(track) }
-                    }
-                }
+                RowLikeButton(track: track, onUnlike: onUnlike)
             }
 
             Text(track.durationText)
@@ -73,59 +63,17 @@ struct TrackRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .contextMenu { contextMenuContent }
+        .contextMenu {
+            RowContextMenu(
+                track: track,
+                isPreparingShare: isPreparingShare,
+                onOpenArtist: onOpenArtist,
+                onShare: prepareShare
+            )
+        }
         .sheet(item: $sharePayload) { payload in
             ActivityView(items: payload.items)
         }
-    }
-
-    // MARK: - Контекстное меню
-
-    @ViewBuilder
-    private var contextMenuContent: some View {
-        Button {
-            Haptics.selection()
-            player.playNext(track)
-        } label: {
-            Label("Играть следующим", systemImage: "text.line.first.and.arrowtriangle.forward")
-        }
-
-        Button {
-            Haptics.selection()
-            player.addToQueue(track)
-        } label: {
-            Label("В очередь", systemImage: "text.badge.plus")
-        }
-
-        Divider()
-
-        if let onOpenArtist {
-            Button {
-                Haptics.selection()
-                onOpenArtist()
-            } label: {
-                Label("К артисту", systemImage: "person")
-            }
-        }
-
-        Button {
-            Task { await likes.toggle(track) }
-        } label: {
-            Label(
-                likes.isLiked(track.id) ? "Убрать из лайков" : "В лайки",
-                systemImage: likes.isLiked(track.id) ? "heart.slash" : "heart"
-            )
-        }
-
-        Button {
-            prepareShare()
-        } label: {
-            Label(
-                isPreparingShare ? "Готовим открытку..." : "Поделиться",
-                systemImage: "square.and.arrow.up"
-            )
-        }
-        .disabled(isPreparingShare)
     }
 
     private func prepareShare() {
@@ -162,5 +110,102 @@ struct TrackRowView: View {
         }
         .frame(width: 52, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+// MARK: - Контекстное меню
+
+/// Меню вынесено в отдельную структуру: `@EnvironmentObject player` здесь
+/// живёт только пока меню открыто, а не на каждой строке длинного списка.
+private struct RowContextMenu: View {
+    let track: Track
+    let isPreparingShare: Bool
+    var onOpenArtist: (() -> Void)?
+    var onShare: () -> Void
+
+    @EnvironmentObject private var player: AudioPlayer
+
+    var body: some View {
+        Button {
+            Haptics.selection()
+            player.playNext(track)
+        } label: {
+            Label("Играть следующим", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+
+        Button {
+            Haptics.selection()
+            player.addToQueue(track)
+        } label: {
+            Label("В очередь", systemImage: "text.badge.plus")
+        }
+
+        Divider()
+
+        if let onOpenArtist {
+            Button {
+                Haptics.selection()
+                onOpenArtist()
+            } label: {
+                Label("К артисту", systemImage: "person")
+            }
+        }
+
+        TrackLikeMenuButton(track: track)
+
+        Button {
+            onShare()
+        } label: {
+            Label(
+                isPreparingShare ? "Готовим открытку..." : "Поделиться",
+                systemImage: "square.and.arrow.up"
+            )
+        }
+        .disabled(isPreparingShare)
+    }
+}
+
+// MARK: - Лайк
+
+/// Сердечко строки. Подписка на `LikeStore` живёт здесь, а не в
+/// `TrackRowView`: тап по лайку обновляет только кнопку, а не строку
+/// с обложкой и текстами.
+private struct RowLikeButton: View {
+    let track: Track
+    var onUnlike: ((Track) -> Void)?
+
+    @EnvironmentObject private var likes: LikeStore
+
+    var body: some View {
+        LikeButton(
+            isLiked: likes.isLiked(track.id),
+            isPending: likes.isPending(track.id)
+        ) {
+            Task {
+                let nowLiked = await likes.toggle(track)
+                if !nowLiked {
+                    onUnlike?(track)
+                }
+            }
+        }
+    }
+}
+
+/// Пункт контекстного меню: подписывается отдельно, чтобы текст и иконка
+/// были актуальны без перерисовки всей строки.
+private struct TrackLikeMenuButton: View {
+    let track: Track
+
+    @EnvironmentObject private var likes: LikeStore
+
+    var body: some View {
+        Button {
+            Task { _ = await likes.toggle(track) }
+        } label: {
+            Label(
+                likes.isLiked(track.id) ? "Убрать из лайков" : "В лайки",
+                systemImage: likes.isLiked(track.id) ? "heart.slash" : "heart"
+            )
+        }
     }
 }

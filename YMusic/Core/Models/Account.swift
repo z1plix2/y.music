@@ -4,14 +4,14 @@ import Foundation
 ///
 /// `uid` берётся из `/account/status`: в `/account/about` его больше нет
 /// (там только `publicId`), а числовой uid нужен для лайков и плейлистов.
-struct Account: Decodable, Equatable {
+struct Account: Codable, Equatable {
     let uid: Int
     let login: String?
     let displayName: String?
     let fullName: String?
     let plus: PlusStatus?
 
-    struct PlusStatus: Decodable, Equatable {
+    struct PlusStatus: Codable, Equatable {
         let hasPlus: Bool?
         let isTutorialCompleted: Bool?
     }

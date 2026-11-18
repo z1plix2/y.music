@@ -44,6 +44,10 @@ struct ShazamSheet: View {
             guard case .found(let match) = recognizer.state else { return }
             await searchInYandex(match)
         }
+        .onDisappear {
+            // Микрофон не должен оставаться занятым после закрытия панели.
+            recognizer.stop()
+        }
         .accessibilityElement(children: .contain)
     }
 

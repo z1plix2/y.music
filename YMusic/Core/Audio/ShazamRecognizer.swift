@@ -34,7 +34,10 @@ final class ShazamRecognizer: NSObject, ObservableObject {
     @Published private(set) var state: State = .idle
 
     private let logger = Logger(subsystem: "com.example.ymusic", category: "Shazam")
-    private let engine = AVAudioEngine()
+    /// Движок пересоздаётся на каждый запуск и обнуляется в `stopAudio()`:
+    /// `AVAudioEngine` с установленным тапом держит микрофон, даже если
+    /// `isRunning == false`.
+    private var engine: AVAudioEngine?
     private var session: SHSession?
     private var timeoutTask: Task<Void, Never>?
     private var isRunning = false
@@ -63,6 +66,8 @@ final class ShazamRecognizer: NSObject, ObservableObject {
             newSession.delegate = self
             session = newSession
 
+            let engine = AVAudioEngine()
+            self.engine = engine
             let input = engine.inputNode
             let format = input.inputFormat(forBus: 0)
             guard format.sampleRate > 0 else {
@@ -124,10 +129,13 @@ final class ShazamRecognizer: NSObject, ObservableObject {
     private func stopAudio() {
         isRunning = false
 
-        if engine.isRunning {
-            engine.stop()
+        if let engine {
+            engine.inputNode.removeTap(onBus: 0)
+            if engine.isRunning {
+                engine.stop()
+            }
+            self.engine = nil
         }
-        engine.inputNode.removeTap(onBus: 0)
 
         session?.delegate = nil
         session = nil

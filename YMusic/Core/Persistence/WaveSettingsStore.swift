@@ -42,6 +42,8 @@ struct WaveSettingsStore {
     private static let moodKey = "wave.mood"
 
     private let defaults: UserDefaults
+    /// Запись — на своей очереди: тап по чипу не должен ждать диск.
+    private let queue = DispatchQueue(label: "com.example.ymusic.wave.settings", qos: .utility)
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -56,8 +58,10 @@ struct WaveSettingsStore {
     }
 
     func save(_ settings: WaveSettings) {
-        defaults.set(settings.onlyNew, forKey: Self.onlyNewKey)
-        defaults.set(settings.russian, forKey: Self.russianKey)
-        defaults.set(settings.mood?.rawValue, forKey: Self.moodKey)
+        queue.async {
+            defaults.set(settings.onlyNew, forKey: Self.onlyNewKey)
+            defaults.set(settings.russian, forKey: Self.russianKey)
+            defaults.set(settings.mood?.rawValue, forKey: Self.moodKey)
+        }
     }
 }

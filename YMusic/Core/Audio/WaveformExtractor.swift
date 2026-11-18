@@ -58,12 +58,6 @@ actor WaveformExtractor {
     static let shared = WaveformExtractor()
 
     static let binsCount = 200
-    static let spectrumLimit = 50
-
-    private struct ManifestEntry: Codable {
-        let frameRate: Double
-        let savedAt: Date
-    }
 
     private let logger = Logger(subsystem: "com.example.ymusic", category: "Waveform")
     private var memory: [Int: [Float]] = [:]
@@ -80,7 +74,15 @@ actor WaveformExtractor {
         needsSpectrum: Bool
     ) async throws -> AudioAnalysis {
         let cachedWaveform = memory[track.id] ?? storedWaveform(for: track.id)
-        let cachedSpectrum = needsSpectrum ? (spectrumMemory[track.id] ?? loadSpectrum(track.id)) : nil
+
+        var cachedSpectrum: SpectrumData?
+        if needsSpectrum {
+            if let inMemory = spectrumMemory[track.id] {
+                cachedSpectrum = inMemory
+            } else {
+                cachedSpectrum = await SpectrumCache.shared.load(track.id)
+            }
+        }
 
         if let cachedWaveform, !needsSpectrum || cachedSpectrum != nil {
             memory[track.id] = cachedWaveform
@@ -122,7 +124,7 @@ actor WaveformExtractor {
 
         if let spectrum = result.spectrum {
             spectrumMemory[track.id] = spectrum
-            saveSpectrum(spectrum, for: track.id)
+            await SpectrumCache.shared.save(spectrum, trackID: track.id)
         }
 
         return AudioAnalysis(
@@ -148,87 +150,6 @@ actor WaveformExtractor {
 
     private static func cacheKey(_ trackID: Int) -> String {
         "waveform.\(trackID)"
-    }
-
-    // MARK: - Кэш спектра
-
-    private var spectrumDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SpectrumCache", isDirectory: true)
-    }
-
-    private func spectrumFileURL(_ trackID: Int) -> URL {
-        spectrumDirectory.appendingPathComponent("\(trackID).bin")
-    }
-
-    private func manifestURL() -> URL {
-        spectrumDirectory.appendingPathComponent("manifest.json")
-    }
-
-    private func loadManifest() -> [String: ManifestEntry] {
-        guard let data = try? Data(contentsOf: manifestURL()) else { return [:] }
-        return (try? JSONDecoder().decode([String: ManifestEntry].self, from: data)) ?? [:]
-    }
-
-    private func saveManifest(_ manifest: [String: ManifestEntry]) {
-        guard let data = try? JSONEncoder().encode(manifest) else { return }
-        try? data.write(to: manifestURL(), options: .atomic)
-    }
-
-    private func loadSpectrum(_ trackID: Int) -> SpectrumData? {
-        let manifest = loadManifest()
-        guard let entry = manifest["\(trackID)"] else { return nil }
-
-        guard let data = try? Data(contentsOf: spectrumFileURL(trackID)), data.count >= 16 else {
-            return nil
-        }
-
-        let floats: [Float] = data.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else { return [] }
-            let headerOffset = 16
-            let count = (data.count - headerOffset) / MemoryLayout<Float>.size
-            let pointer = base.advanced(by: headerOffset)
-                .assumingMemoryBound(to: Float.self)
-            return Array(UnsafeBufferPointer(start: pointer, count: count))
-        }
-
-        guard !floats.isEmpty else { return nil }
-        return SpectrumData(frameRate: entry.frameRate, frames: floats)
-    }
-
-    private func saveSpectrum(_ spectrum: SpectrumData, for trackID: Int) {
-        let directory = spectrumDirectory
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
-
-        var data = Data()
-        data.append(Data([0x53, 0x50, 0x43, 0x31])) // "SPC1"
-        var bins = Int32(SpectrumData.binsCount)
-        var rate = spectrum.frameRate
-        withUnsafeBytes(of: &bins) { data.append(contentsOf: $0) }
-        withUnsafeBytes(of: &rate) { data.append(contentsOf: $0) }
-        data.append(spectrum.frames.withUnsafeBufferPointer { Data(buffer: $0) })
-
-        try? data.write(to: spectrumFileURL(trackID), options: .atomic)
-
-        var manifest = loadManifest()
-        manifest["\(trackID)"] = ManifestEntry(frameRate: spectrum.frameRate, savedAt: Date())
-
-        if manifest.count > Self.spectrumLimit {
-            let oldest = manifest
-                .sorted { $0.value.savedAt < $1.value.savedAt }
-                .prefix(manifest.count - Self.spectrumLimit)
-            for (key, _) in oldest {
-                try? FileManager.default.removeItem(
-                    at: spectrumDirectory.appendingPathComponent("\(key).bin")
-                )
-                manifest.removeValue(forKey: key)
-            }
-        }
-
-        saveManifest(manifest)
     }
 
     // MARK: - Разбор
