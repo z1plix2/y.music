@@ -1,3 +1,4 @@
+import ImageIO
 import OSLog
 import SwiftUI
 import UIKit
@@ -40,7 +41,9 @@ final class ImageLoader {
                 return nil
             }
 
-            guard let image = UIImage(data: data) else {
+            // Декодирование и даунсемплинг — вне главного потока: для обложки
+            // 1000×1000 `UIImage(data:)` на main даёт заметный фриз в скролле.
+            guard let image = await Self.decodeImage(from: data) else {
                 logger.debug("Обложка не декодируется")
                 return nil
             }
@@ -57,6 +60,33 @@ final class ImageLoader {
             logger.debug("Обложка не загрузилась: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    /// Декодирует сразу в нужном размере: `CGImageSourceCreateThumbnailAtIndex`
+    /// не разворачивает полноразмерный битмап, поэтому дешевле и по памяти.
+    nonisolated private static func decodeImage(from data: Data) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+                return UIImage(data: data)
+            }
+
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 600,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+
+            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                options as CFDictionary
+            ) else {
+                return UIImage(data: data)
+            }
+
+            return UIImage(cgImage: thumbnail)
+        }.value
     }
 }
 

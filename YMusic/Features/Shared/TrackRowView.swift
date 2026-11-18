@@ -45,6 +45,7 @@ struct TrackRowView: View {
             }
             .buttonStyle(.plain)
             .disabled(onTap == nil)
+            .accessibilityLabel("\(track.title), \(track.artistLine)")
 
             if showsLike {
                 LikeButton(

@@ -160,6 +160,7 @@ struct GlassButton: View {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .foregroundStyle(foregroundColor)
             .padding(.horizontal, 20)

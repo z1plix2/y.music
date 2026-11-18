@@ -70,7 +70,7 @@ struct LikedTracksView: View {
 
     private func list(_ tracks: [Track]) -> some View {
         GlassCard(cornerRadius: 24, padding: 8) {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                     row(track, tracks: tracks)
 
