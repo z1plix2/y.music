@@ -29,12 +29,14 @@ struct WaveVisualizer: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var loadedPalette: ColorPalette?
     @State private var bursts: [ParticleBurst] = []
+    /// Плеер закрыт, но view ещё в памяти — кадры не нужны.
+    @State private var isVisible = false
 
     private static let count = 96
 
     /// На паузе и в фоне кадров нет совсем: `TimelineView` перестаёт тикать.
     private var isPaused: Bool {
-        !isPlaying || scenePhase != .active
+        !isPlaying || scenePhase != .active || !isVisible
     }
 
     var body: some View {
@@ -58,6 +60,8 @@ struct WaveVisualizer: View {
         }
         .frame(height: height)
         .accessibilityHidden(true)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         .task(id: artworkURL) {
             guard let artworkURL else { return }
             loadedPalette = await ColorExtractor.shared.palette(

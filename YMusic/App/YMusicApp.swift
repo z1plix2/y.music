@@ -95,6 +95,8 @@ struct RootView: View {
             resolvePendingDeepLink()
         }
         .onChange(of: scenePhase) { phase in
+            player.handleScenePhase(phase)
+
             switch phase {
             case .background:
                 // Играем дальше (UIBackgroundModes: audio), но состояние

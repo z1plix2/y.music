@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import OSLog
+import SwiftUI
 import WidgetKit
 
 /// Плеер поверх `AVPlayer`.
@@ -139,6 +140,34 @@ final class AudioPlayer: ObservableObject {
 
         if isPlaying {
             beatHaptics?.resume()
+        }
+    }
+
+    /// Единая точка реакции на жизненный цикл: в фоне не должно тикать
+    /// ничего, кроме самого `AVPlayer` с background audio.
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            beatHaptics?.suspend()
+            waveformTask?.cancel()
+            waveformTask = nil
+
+        case .active:
+            if isPlaying {
+                beatHaptics?.resume()
+
+                if waveform.isEmpty,
+                   let track = queue.currentTrack,
+                   let currentStreamURL {
+                    startWaveform(for: track, url: currentStreamURL)
+                }
+            }
+
+        case .inactive:
+            beatHaptics?.pause()
+
+        @unknown default:
+            break
         }
     }
 
@@ -466,6 +495,7 @@ final class AudioPlayer: ObservableObject {
         stopBeatHaptics()
         waveformTask?.cancel()
         waveformTask = nil
+        Task { await AnalysisFileStore.shared.clear() }
 
         deactivateSession()
     }
@@ -537,6 +567,7 @@ final class AudioPlayer: ObservableObject {
         lastObservedTime = 0
         duration = track.duration
         notice = nil
+        await AnalysisFileStore.shared.clear()
         if pendingSeek == nil { persist() }
         syncNowPlaying()
 

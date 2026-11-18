@@ -29,15 +29,13 @@ actor WaveformExtractor {
 
         let localURL: URL
         do {
-            localURL = try await download(streamURL)
+            localURL = try await AnalysisFileStore.shared.localFile(for: streamURL)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             logger.error("Форма волны: загрузка не удалась \(error.localizedDescription, privacy: .public)")
             throw error
         }
-
-        defer { try? FileManager.default.removeItem(at: localURL) }
 
         guard !Task.isCancelled else { throw CancellationError() }
 
@@ -49,26 +47,6 @@ actor WaveformExtractor {
         memory[track.id] = bins
         store(bins, for: track.id)
         return bins
-    }
-
-    // MARK: - Сеть
-
-    private func download(_ url: URL) async throws -> URL {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 30
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        if let http = response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode) {
-            throw APIError.http(status: http.statusCode, payload: nil)
-        }
-
-        let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("wave-\(UUID().uuidString).\(ext)")
-        try data.write(to: target, options: .atomic)
-        return target
     }
 
     // MARK: - Кэш
