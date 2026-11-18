@@ -27,7 +27,7 @@ struct PlaylistDetailView: View {
                 topBar
 
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 24) {
                         header
 
                         switch viewModel.state {
@@ -60,23 +60,14 @@ struct PlaylistDetailView: View {
     // MARK: - Панель
 
     private var topBar: some View {
-        HStack {
-            GlassIconButton("chevron.down", label: "Закрыть") {
-                dismiss()
-            }
-
-            Spacer()
-
-            Text("Плейлист")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(tone.tertiary)
-
-            Spacer()
-
-            Color.clear.frame(width: 40, height: 40)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        GlassScreenHeader(
+            title: "Плейлист",
+            subtitle: playlist.title,
+            onClose: { dismiss() }
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Шапка
@@ -211,18 +202,13 @@ struct PlaylistDetailView: View {
     }
 
     private var emptyCard: some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Плейлист пуст")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tone.primary)
-
-                Text("Сервер не вернул ни одного трека.")
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        EmptyStateCard(
+            systemImage: "music.note.list",
+            title: "Плейлист пуст",
+            message: "Сервер не вернул ни одного трека.",
+            actionTitle: "Обновить",
+            action: { Task { await viewModel.retry() } }
+        )
     }
 }
 

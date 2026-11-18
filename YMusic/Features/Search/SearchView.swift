@@ -29,7 +29,7 @@ struct SearchView: View {
                 searchBar
 
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 24) {
                         content
                     }
                     .padding(.horizontal, 20)
@@ -53,7 +53,6 @@ struct SearchView: View {
             destination(for: route)
                 .environmentObject(player)
                 .environmentObject(likes)
-                .preferredColorScheme(.dark)
         }
     }
 
@@ -74,23 +73,13 @@ struct SearchView: View {
     // MARK: - Панель и поле
 
     private var topBar: some View {
-        HStack {
-            GlassIconButton("chevron.down", label: "Закрыть") {
-                dismiss()
-            }
-
-            Spacer()
-
-            Text("Поиск")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(tone.primary)
-
-            Spacer()
-
-            Color.clear.frame(width: 40, height: 40)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        GlassScreenHeader(
+            title: "Поиск",
+            subtitle: "Треки, артисты и альбомы",
+            onClose: { dismiss() }
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
         .padding(.bottom, 4)
     }
 

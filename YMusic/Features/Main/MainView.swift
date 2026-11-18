@@ -61,13 +61,14 @@ struct MainView: View {
         }
         .environmentObject(likes)
         .animation(.easeInOut(duration: 0.25), value: player.currentTrack?.id)
-        .sheet(item: $route) { route in
-            destination(for: route)
+        .sheet(item: $route) { presented in
+            destination(for: presented, onClose: { route = nil })
+                .environmentObject(auth)
                 .environmentObject(player)
                 .environmentObject(likes)
                 .environmentObject(waveSession)
+                .environmentObject(AppSettingsStore.shared)
                 .environmentObject(ListeningStatsStore.shared)
-                .preferredColorScheme(.dark)
         }
         .onAppear {
             catalog.onSessionExpired = {
@@ -118,7 +119,7 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private func destination(for route: MainRoute) -> some View {
+    private func destination(for route: MainRoute, onClose: @escaping () -> Void) -> some View {
         switch route {
         case .player:
             NowPlayingView(onOpenArtist: { artistID in
@@ -136,6 +137,8 @@ struct MainView: View {
             SearchView(userID: account.uid)
         case .stats:
             StatsView()
+        case .settings:
+            SettingsView(account: account, onClose: onClose)
         }
     }
 
@@ -223,6 +226,7 @@ enum MainRoute: Identifiable {
     case album(Int)
     case search
     case stats
+    case settings
 
     var id: String {
         switch self {
@@ -233,6 +237,7 @@ enum MainRoute: Identifiable {
         case .album(let albumID): return "album-\(albumID)"
         case .search: return "search"
         case .stats: return "stats"
+        case .settings: return "settings"
         }
     }
 }
@@ -245,7 +250,6 @@ private struct MainScrollContent: View {
     @ObservedObject var wave: WaveViewModel
     @Binding var route: MainRoute?
 
-    @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var waveSession: WaveSessionController
     @EnvironmentObject private var stats: ListeningStatsStore
@@ -365,14 +369,8 @@ private struct MainScrollContent: View {
                 route = .search
             }
 
-            if catalog.isRefreshing {
-                ProgressView()
-                    .tint(tone.secondary)
-                    .frame(width: 40, height: 40)
-            } else {
-                GlassIconButton("arrow.clockwise", label: "Обновить") {
-                    Task { await refreshAll() }
-                }
+            GlassIconButton("gearshape", label: "Настройки") {
+                route = .settings
             }
 
             if account.hasPlus {
@@ -846,17 +844,14 @@ private struct MainScrollContent: View {
             }
 
             GlassButton(
-                "Выйти из аккаунта",
-                systemImage: "rectangle.portrait.and.arrow.right",
+                "Настройки",
+                systemImage: "gearshape",
                 fullWidth: true
             ) {
-                Task {
-                    player.resetForSignOut()
-                    await auth.signOut()
-                }
+                route = .settings
             }
 
-            Text("Фаза 6 · поиск и «Моя волна»")
+            Text("YMusic · неофициальный клиент")
                 .font(.caption2)
                 .foregroundStyle(tone.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)

@@ -9,10 +9,22 @@ extension Notification.Name {
 
 @main
 struct YMusicApp: App {
+    /// Онбординг показывается один раз; после него открывается обычный корень.
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .preferredColorScheme(.dark)
+            if hasSeenOnboarding {
+                RootView()
+                    .transition(.opacity)
+            } else {
+                OnboardingView {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        hasSeenOnboarding = true
+                    }
+                }
+                .transition(.opacity)
+            }
         }
     }
 }
@@ -25,6 +37,10 @@ struct YMusicApp: App {
 @MainActor
 struct RootView: View {
     @StateObject private var auth = AuthService()
+
+    /// Тема живёт выше `WindowGroup`, чтобы `preferredColorScheme`
+    /// переключался сразу и не сбрасывался при пересоздании экранов.
+    @StateObject private var settings = AppSettingsStore.shared
 
     // Для проверки управления без сети можно подменить источник:
     // `AudioPlayer(streamProvider: BundledDemoStreamProvider())`
@@ -63,7 +79,9 @@ struct RootView: View {
         .environmentObject(auth)
         .environmentObject(player)
         .environmentObject(waveSession)
+        .environmentObject(settings)
         .environmentObject(ListeningStatsStore.shared)
+        .preferredColorScheme(settings.colorScheme)
         .animation(.easeInOut(duration: 0.35), value: auth.state)
         .task {
             await auth.restore()

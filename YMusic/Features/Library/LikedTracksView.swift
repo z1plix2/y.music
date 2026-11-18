@@ -24,7 +24,7 @@ struct LikedTracksView: View {
                 topBar
 
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 24) {
                         Group {
                             switch viewModel.state {
                             case .idle, .loading:
@@ -56,23 +56,13 @@ struct LikedTracksView: View {
     // MARK: - Панель
 
     private var topBar: some View {
-        HStack {
-            GlassIconButton("chevron.down", label: "Закрыть") {
-                dismiss()
-            }
-
-            Spacer()
-
-            Text("Мне нравится")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(tone.primary)
-
-            Spacer()
-
-            Color.clear.frame(width: 40, height: 40)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        GlassScreenHeader(
+            title: "Мне нравится",
+            subtitle: viewModel.tracks.isEmpty ? nil : "\(viewModel.tracks.count) треков",
+            onClose: { dismiss() }
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
         .padding(.bottom, 4)
     }
 

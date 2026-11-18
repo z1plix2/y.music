@@ -58,7 +58,8 @@ final class AudioPlayer: ObservableObject {
     private let nowPlaying = NowPlayingCenter()
     private let logger = Logger(subsystem: "com.example.ymusic", category: "AudioPlayer")
     private let player = AVPlayer()
-    private let maxBitrate = 320
+    /// Качество стрима — из настроек: 320 или 192 кбит/с.
+    private var maxBitrate: Int { AppSettingsStore.shared.bitrate }
 
     /// 60 тиков по 0.5 с = 30 с: период чекпойнта состояния и обновления
     /// elapsed у системы.
@@ -194,7 +195,7 @@ final class AudioPlayer: ObservableObject {
                 try? await Task.sleep(nanoseconds: 30_000_000)
             }
 
-            self.next()
+            self.advanceToNext()
 
             for step in 1...steps {
                 guard !Task.isCancelled else { break }
@@ -289,6 +290,17 @@ final class AudioPlayer: ObservableObject {
     }
 
     func next() {
+        // Кроссфейд — опция: при включённой галочке переход идёт через
+        // затухание. Отдельный `advanceToNext`, чтобы `fadeOutAndNext`
+        // не зациклился сам на себя.
+        if AppSettingsStore.shared.crossfadeEnabled, isPlaying, !queue.isEmpty {
+            fadeOutAndNext()
+            return
+        }
+        advanceToNext()
+    }
+
+    private func advanceToNext() {
         guard queue.advance(by: 1) != nil else { return }
         pendingSeek = nil
         startPlayback()
