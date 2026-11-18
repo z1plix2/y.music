@@ -15,13 +15,13 @@ struct GlassScreenHeader: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(tone.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.footnote)
+                        .font(.subheadline)
                         .foregroundStyle(tone.tertiary)
                         .lineLimit(1)
                         .fixedSize(horizontal: false, vertical: true)
