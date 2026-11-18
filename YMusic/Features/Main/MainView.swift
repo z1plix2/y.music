@@ -1,4 +1,6 @@
+import OSLog
 import SwiftUI
+import UIKit
 
 /// Главный экран: фон из обложки текущего трека (или первой обложки каталога),
 /// шапка аккаунта, hero-карточка «Моя волна», секции каталога и мини-плеер.
@@ -20,6 +22,10 @@ struct MainView: View {
     /// Отложенный переход NowPlaying → артист: сначала закрываем плеер,
     /// потом открываем артиста. Храним задачу, чтобы отменить её при уходе.
     @State private var pendingRouteTask: Task<Void, Never>?
+    @State private var toast: String?
+    @State private var toastTask: Task<Void, Never>?
+
+    private let logger = Logger(subsystem: "com.example.ymusic", category: "MainView")
 
     @MainActor
     init(account: Account) {
@@ -60,6 +66,7 @@ struct MainView: View {
                 .environmentObject(player)
                 .environmentObject(likes)
                 .environmentObject(waveSession)
+                .environmentObject(ListeningStatsStore.shared)
                 .preferredColorScheme(.dark)
         }
         .onAppear {
@@ -73,6 +80,29 @@ struct MainView: View {
         .onDisappear {
             pendingRouteTask?.cancel()
             pendingRouteTask = nil
+            toastTask?.cancel()
+            toastTask = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.deviceDidShakeNotification)) { _ in
+            shakeToShuffle()
+        }
+        .overlay(alignment: .top) {
+            if let toast {
+                Text(toast)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background {
+                        Capsule().fill(Color.black.opacity(0.55))
+                    }
+                    .overlay {
+                        Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                    }
+                    .padding(.top, 54)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .allowsHitTesting(false)
+            }
         }
         .task {
             // `configure` идемпотентен: повторный вход на экран не перетрёт
@@ -100,6 +130,8 @@ struct MainView: View {
             AlbumDetailView(albumID: albumID)
         case .search:
             SearchView(userID: account.uid)
+        case .stats:
+            StatsView()
         }
     }
 
@@ -108,6 +140,50 @@ struct MainView: View {
     /// 250 мс — длительность стандартной анимации dismiss на iOS. Пауза
     /// нужна потому, что два `.sheet(item:)` подряд без неё на iOS 15
     /// теряют второй переход. Задача отменяется в `.onDisappear`.
+    // MARK: - Тряска
+
+    /// Shake to shuffle: играем случайный порядок лайкнутых треков.
+    /// Если лайков нет — короткая плашка вместо пустого действия.
+    private func shakeToShuffle() {
+        Haptics.light()
+
+        let likedIDs = Array(likes.likedIDs.prefix(100))
+        guard !likedIDs.isEmpty else {
+            showToast("Нет лайков для шаффла")
+            return
+        }
+
+        Task {
+            do {
+                let tracks = try await APIManager.shared.tracks(ids: likedIDs)
+                guard !tracks.isEmpty else {
+                    showToast("Нет лайков для шаффла")
+                    return
+                }
+                player.play(tracks: tracks.shuffled(), startAt: 0)
+            } catch {
+                logger.error("Шаффл лайков: \(error.localizedDescription, privacy: .public)")
+                showToast("Не удалось загрузить лайки")
+            }
+        }
+    }
+
+    private func showToast(_ text: String) {
+        toastTask?.cancel()
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            toast = text
+        }
+
+        toastTask = Task {
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                toast = nil
+            }
+        }
+    }
+
     private func openArtist(_ artistID: Int) {
         pendingRouteTask?.cancel()
         route = nil
@@ -142,6 +218,7 @@ enum MainRoute: Identifiable {
     case artist(Int)
     case album(Int)
     case search
+    case stats
 
     var id: String {
         switch self {
@@ -151,6 +228,7 @@ enum MainRoute: Identifiable {
         case .artist(let artistID): return "artist-\(artistID)"
         case .album(let albumID): return "album-\(albumID)"
         case .search: return "search"
+        case .stats: return "stats"
         }
     }
 }
@@ -166,6 +244,7 @@ private struct MainScrollContent: View {
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var waveSession: WaveSessionController
+    @EnvironmentObject private var stats: ListeningStatsStore
     @Environment(\.contentTone) private var tone
 
     var body: some View {
@@ -229,6 +308,26 @@ private struct MainScrollContent: View {
 
     // MARK: Шапка
 
+    /// Стрик: маленький чип у имени, тап открывает статистику.
+    private var streakChip: some View {
+        Button {
+            Haptics.selection()
+            route = .stats
+        } label: {
+            Text("🔥 \(stats.snapshot.currentStreak)")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(tone.primary)
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background { Capsule().fill(Color.white.opacity(0.1)) }
+                .overlay {
+                    Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
+                }
+        }
+        .buttonStyle(PressableStyle(scale: 0.94))
+        .accessibilityLabel("Стрик \(stats.snapshot.currentStreak) дней. Открыть статистику")
+    }
+
     private var header: some View {
         HStack(spacing: 14) {
             avatar
@@ -238,10 +337,16 @@ private struct MainScrollContent: View {
                     .font(.caption)
                     .foregroundStyle(tone.tertiary)
 
-                Text(account.title)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(tone.primary)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(account.title)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(tone.primary)
+                        .lineLimit(1)
+
+                    if stats.snapshot.currentStreak > 0 {
+                        streakChip
+                    }
+                }
 
                 if let login = account.login, !login.isEmpty {
                     Text("@\(login)")

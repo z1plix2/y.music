@@ -70,8 +70,12 @@ struct NowPlayingView: View {
 
     private var topBar: some View {
         HStack {
-            GlassIconButton("chevron.down", label: "Закрыть") {
-                dismiss()
+            HStack(spacing: 8) {
+                GlassIconButton("chevron.down", label: "Закрыть") {
+                    dismiss()
+                }
+
+                sleepMenu
             }
 
             Spacer()
@@ -94,6 +98,57 @@ struct NowPlayingView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// Сон-таймер: меню в верхней панели, на иконке — остаток минут.
+    private var sleepMenu: some View {
+        Menu {
+            ForEach([5, 15, 30, 60], id: \.self) { minutes in
+                Button("\(minutes) минут") {
+                    Haptics.selection()
+                    player.startSleepTimer(minutes: minutes)
+                }
+            }
+
+            if player.sleepTimerEndsAt != nil {
+                Button("Выключить таймер", role: .destructive) {
+                    player.cancelSleepTimer()
+                }
+            }
+        } label: {
+            TimelineView(.periodic(from: Date(), by: 20)) { _ in
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: player.sleepTimerEndsAt == nil ? "moon" : "moon.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(player.sleepTimerEndsAt == nil ? tone.secondary : tone.primary)
+                        .frame(width: 40, height: 40)
+                        .background { Circle().fill(Color.white.opacity(0.06)) }
+                        .overlay {
+                            Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        }
+
+                    if let minutes = sleepRemainingMinutes {
+                        Text("\(minutes)")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(tone.primary)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background { Capsule().fill(Color.black.opacity(0.6)) }
+                            .offset(x: 4, y: -4)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel(
+            sleepRemainingMinutes.map { "Сон-таймер: \($0) минут" } ?? "Сон-таймер"
+        )
+    }
+
+    private var sleepRemainingMinutes: Int? {
+        guard let endsAt = player.sleepTimerEndsAt else { return nil }
+        let remaining = endsAt.timeIntervalSinceNow
+        guard remaining > 0 else { return 0 }
+        return Int(ceil(remaining / 60))
     }
 
     /// Открытка рендерится в фоне: загрузка обложки и палитры может занять

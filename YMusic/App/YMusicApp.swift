@@ -57,6 +57,7 @@ struct RootView: View {
         .environmentObject(auth)
         .environmentObject(player)
         .environmentObject(waveSession)
+        .environmentObject(ListeningStatsStore.shared)
         .animation(.easeInOut(duration: 0.35), value: auth.state)
         .task {
             await auth.restore()
@@ -64,6 +65,10 @@ struct RootView: View {
         }
         .onOpenURL { url in
             handleDeepLink(url)
+        }
+        .onChange(of: player.isConfigured) { ready in
+            guard ready else { return }
+            resolvePendingDeepLink()
         }
         .onChange(of: scenePhase) { phase in
             switch phase {
@@ -121,6 +126,11 @@ struct RootView: View {
     }
 
     private func openTrack(trackID: Int) {
+        guard player.isConfigured else {
+            pendingTrackID = trackID
+            return
+        }
+
         if let existing = player.queue.tracks.first(where: { $0.id == trackID }) {
             player.play(track: existing, in: player.queue.tracks)
             return
