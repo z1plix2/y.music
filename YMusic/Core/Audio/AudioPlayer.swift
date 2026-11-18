@@ -910,7 +910,7 @@ private func startBeatHaptics(for url: URL) {
         stopBeatHaptics()
 
         guard UserDefaults.standard.bool(forKey: "beatHapticsEnabled"),
-              BeatHapticsEngine.isSupported
+              BeatHapticsSupport.isSupported
         else {
             return
         }
