@@ -159,6 +159,58 @@ final class AudioPlayer: ObservableObject {
         startPlayback()
     }
 
+    // MARK: - Управление очередью
+
+    /// Вставляет трек сразу после текущего. Если очередь пуста — просто
+    /// кладёт его туда, но не запускает: воспроизведение начинает пользователь.
+    func playNext(_ track: Track) {
+        queue.insertNext(track)
+        logger.info("Трек поставлен следующим: \(track.title, privacy: .public)")
+        persist()
+    }
+
+    /// Добавляет трек в конец очереди, не трогая текущий.
+    func addToQueue(_ track: Track) {
+        queue.append(track)
+        logger.info("Трек добавлен в очередь: \(track.title, privacy: .public)")
+        persist()
+    }
+
+    /// Удаляет трек из очереди. Если удалён играющий — запускает следующий.
+    func removeFromQueue(at index: Int) {
+        guard queue.tracks.indices.contains(index) else { return }
+
+        let removedTrack = queue.tracks[index]
+        let wasCurrent = removedTrack.id == queue.currentTrack?.id
+        queue.remove(at: index)
+
+        guard wasCurrent else { return }
+
+        if queue.isEmpty {
+            stop()
+        } else {
+            pendingSeek = nil
+            startPlayback()
+        }
+    }
+
+    /// Перестановка в секции «Дальше».
+    func moveInQueue(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queue.move(fromOffsets: source, toOffset: destination)
+        persist()
+    }
+
+    /// Очищает очередь. С `keepingCurrent` оставляет только играющий трек.
+    func clearQueue(keepingCurrent: Bool) {
+        queue.clear(keepingCurrent: keepingCurrent)
+
+        if queue.isEmpty {
+            stop()
+        } else {
+            persist()
+        }
+    }
+
     /// Дописывает треки в очередь, не трогая текущий.
     ///
     /// Нужно «Моей волне»: сессия приносит партии, пока играет предыдущая,

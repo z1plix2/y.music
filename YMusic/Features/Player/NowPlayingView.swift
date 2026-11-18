@@ -19,6 +19,7 @@ struct NowPlayingView: View {
     /// Плеер глушим на время распознавания: микрофон не должен слышать
     /// наш же трек. Возвращаем только если пользователь не включил другой.
     @State private var resumeAfterShazam = false
+    @State private var isQueuePresented = false
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -68,6 +69,10 @@ struct NowPlayingView: View {
         }
         .sheet(item: $sharePayload) { item in
             ActivityView(items: item.items)
+        }
+        .sheet(isPresented: $isQueuePresented) {
+            QueueView()
+                .environmentObject(player)
         }
         .alert("Видео не готово", isPresented: $showVideoError) {
             Button("OK", role: .cancel) { }
@@ -127,6 +132,7 @@ struct NowPlayingView: View {
             HStack(spacing: 8) {
                 videoButton
                 shareButton
+                queueButton
 
                 GlassIconButton("mic", label: "Распознать трек") {
                     Haptics.light()
@@ -288,6 +294,37 @@ struct NowPlayingView: View {
             isPreparingShare = false
             sharePayload = SharePayload(items: [image])
         }
+    }
+
+    /// Очередь: badge с числом треков, чтобы было видно, что там что-то есть.
+    private var queueButton: some View {
+        Button {
+            Haptics.selection()
+            isQueuePresented = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tone.primary)
+                    .frame(width: 40, height: 40)
+                    .background { Circle().fill(Color.white.opacity(0.08)) }
+                    .overlay {
+                        Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                    }
+
+                if !player.queue.isEmpty {
+                    Text("\(player.queue.tracks.count)")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(tone.primary)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background { Capsule().fill(Color.black.opacity(0.6)) }
+                        .offset(x: 4, y: -4)
+                }
+            }
+        }
+        .buttonStyle(PressableStyle(scale: 0.9))
+        .accessibilityLabel("Очередь, \(player.queue.tracks.count) треков")
     }
 
     // MARK: - Обложка и подписи

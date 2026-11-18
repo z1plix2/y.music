@@ -209,13 +209,19 @@ struct PlaylistDetailView: View {
             track: track,
             isCurrent: isCurrent,
             isPlaying: isCurrent && player.isPlaying,
-            onTap: { play(from: index) }
+            onTap: { play(from: index) },
+            onOpenArtist: artistAction
         )
     }
 
     private func play(from index: Int) {
         guard viewModel.tracks.indices.contains(index) else { return }
         player.play(tracks: viewModel.tracks, startAt: index)
+    }
+
+    private var artistAction: (() -> Void)? {
+        guard let artist = openableArtist else { return nil }
+        return { onOpenArtist(artist.id) }
     }
 
     // MARK: - Состояния

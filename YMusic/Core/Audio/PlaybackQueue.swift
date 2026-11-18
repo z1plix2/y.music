@@ -113,4 +113,92 @@ struct PlaybackQueue: Equatable, Sendable {
         tracks.append(contentsOf: newTracks)
         order.append(contentsOf: start..<(start + newTracks.count))
     }
+
+    // MARK: - Очередь из экрана «Дальше»
+
+    /// Треки после текущего в реальном порядке воспроизведения. Индекс —
+    /// позиция в `tracks`, чтобы по нему можно было удалять.
+    var upNext: [(index: Int, track: Track)] {
+        guard order.indices.contains(position) else { return [] }
+        return order.dropFirst(position + 1).compactMap { index in
+            guard tracks.indices.contains(index) else { return nil }
+            return (index, tracks[index])
+        }
+    }
+
+    /// Вставляет трек сразу после текущего. На пустой очереди становится
+    /// первым, но воспроизведение не запускает — это решает вызывающий.
+    mutating func insertNext(_ track: Track) {
+        tracks.append(track)
+        let newIndex = tracks.count - 1
+
+        guard !order.isEmpty, order.indices.contains(position) else {
+            order = [newIndex]
+            position = 0
+            return
+        }
+
+        order.insert(newIndex, at: min(position + 1, order.count))
+    }
+
+    /// Добавляет трек в конец очереди.
+    mutating func append(_ track: Track) {
+        tracks.append(track)
+        order.append(tracks.count - 1)
+
+        if order.count == 1 {
+            position = 0
+        }
+    }
+
+    /// Удаляет трек по индексу в `tracks`. Если удалён текущий, `position`
+    /// указывает на следующий; на последнем — на предыдущий.
+    mutating func remove(at index: Int) {
+        guard tracks.indices.contains(index) else { return }
+
+        let removedOrderPosition = order.firstIndex(of: index)
+
+        tracks.remove(at: index)
+        order = order.compactMap { value in
+            if value == index { return nil }
+            return value > index ? value - 1 : value
+        }
+
+        guard !order.isEmpty else {
+            position = 0
+            return
+        }
+
+        if let removedOrderPosition {
+            if removedOrderPosition < position {
+                position -= 1
+            }
+        }
+
+        position = min(max(position, 0), order.count - 1)
+    }
+
+    /// Перестановка в секции «Дальше». Индексы — относительные, как их
+    /// отдаёт `ForEach.onMove` SwiftUI.
+    mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let start = position + 1
+        guard start < order.count else { return }
+
+        var slice = Array(order[start...])
+        slice.move(fromOffsets: source, toOffset: destination)
+        order.replaceSubrange(start..., with: slice)
+    }
+
+    /// Очистка очереди. С `keepingCurrent` остаётся только играющий трек.
+    mutating func clear(keepingCurrent: Bool) {
+        if keepingCurrent, let current = currentTrack {
+            tracks = [current]
+            order = [0]
+            position = 0
+        } else {
+            tracks = []
+            order = []
+            position = 0
+        }
+    }
 }
