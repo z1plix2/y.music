@@ -24,6 +24,10 @@ struct RootView: View {
     // и положить demo-track.m4a в бандл.
     @StateObject private var player = AudioPlayer()
 
+    /// Сессии «Моей волны»: живут выше `MainView`, чтобы переживать
+    /// пересоздание экрана и не терять сессию между открытиями плеера.
+    @StateObject private var waveSession = WaveSessionController()
+
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -46,6 +50,7 @@ struct RootView: View {
         }
         .environmentObject(auth)
         .environmentObject(player)
+        .environmentObject(waveSession)
         .animation(.easeInOut(duration: 0.35), value: auth.state)
         .task { await auth.restore() }
         .onChange(of: scenePhase) { phase in

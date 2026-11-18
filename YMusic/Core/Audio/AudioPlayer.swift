@@ -136,6 +136,22 @@ final class AudioPlayer: ObservableObject {
         startPlayback()
     }
 
+    /// Дописывает треки в очередь, не трогая текущий.
+    ///
+    /// Нужно «Моей волне»: сессия приносит партии, пока играет предыдущая,
+    /// поэтому `play` с новой очередью не подходит — он перезапустил бы трек.
+    func extendQueue(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+
+        let wasEmpty = queue.isEmpty
+        queue.append(contentsOf: tracks)
+        guard !wasEmpty else {
+            startPlayback()
+            return
+        }
+        persist()
+    }
+
     func togglePlayPause() {
         switch status {
         case .playing:

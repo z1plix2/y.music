@@ -99,4 +99,14 @@ struct PlaybackQueue: Equatable, Sendable {
         case .one: repeatMode = .off
         }
     }
+
+    /// Дописывает треки в конец очереди: «Моя волна» приносит партии,
+    /// пока играет предыдущая. Порядок при shuffle не пересобирается —
+    /// новые треки просто встают в конец уже перемешанной очереди.
+    mutating func append(contentsOf newTracks: [Track]) {
+        guard !newTracks.isEmpty else { return }
+        let start = tracks.count
+        tracks.append(contentsOf: newTracks)
+        order.append(contentsOf: start..<(start + newTracks.count))
+    }
 }
