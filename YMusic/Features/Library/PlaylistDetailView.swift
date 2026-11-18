@@ -205,26 +205,8 @@ struct PlaylistDetailView: View {
     }
 
     private func errorCard(_ error: APIError) -> some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: error.requiresReauthentication ? "lock.slash" : "exclamationmark.triangle")
-                        .font(.system(size: 16, weight: .semibold))
-
-                    Text(error.requiresReauthentication ? "Сессия истекла" : "Не удалось загрузить")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(tone.primary)
-
-                Text(error.localizedDescription)
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                GlassButton("Повторить", systemImage: "arrow.clockwise") {
-                    Task { await viewModel.retry() }
-                }
-            }
+        ErrorStateCard(error: error, context: .playlist) {
+            Task { await viewModel.retry() }
         }
     }
 

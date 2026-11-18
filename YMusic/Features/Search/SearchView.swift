@@ -12,7 +12,7 @@ struct SearchView: View {
     @Environment(\.dismiss) private var dismiss
 
     @FocusState private var isFieldFocused: Bool
-    @State private var openedPlaylist: Playlist?
+    @State private var route: SearchRoute?
 
     init(userID: Int) {
         _viewModel = StateObject(wrappedValue: SearchViewModel(userID: userID))
@@ -35,6 +35,7 @@ struct SearchView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
                     .padding(.bottom, 40)
+                    .animation(.easeInOut(duration: 0.25), value: contentKey)
                 }
             }
         }
@@ -48,11 +49,25 @@ struct SearchView: View {
         .onDisappear {
             viewModel.cancel()
         }
-        .sheet(item: $openedPlaylist) { playlist in
-            PlaylistDetailView(playlist: playlist, userID: viewModel.userID)
+        .sheet(item: $route) { route in
+            destination(for: route)
                 .environmentObject(player)
                 .environmentObject(likes)
                 .preferredColorScheme(.dark)
+        }
+    }
+
+    /// Один `.sheet(item:)` на экран: три отдельных модификатора на одном
+    /// view в SwiftUI конфликтуют между собой.
+    @ViewBuilder
+    private func destination(for route: SearchRoute) -> some View {
+        switch route {
+        case .playlist(let playlist):
+            PlaylistDetailView(playlist: playlist, userID: viewModel.userID)
+        case .artist(let artistID):
+            ArtistDetailView(artistID: artistID)
+        case .album(let albumID):
+            AlbumDetailView(albumID: albumID)
         }
     }
 
@@ -116,23 +131,38 @@ struct SearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isShowingHistory {
-            historySection
-        } else {
-            switch viewModel.state {
-            case .idle, .loading:
-                skeleton
+        Group {
+            if viewModel.isShowingHistory {
+                historySection
+            } else {
+                switch viewModel.state {
+                case .idle, .loading:
+                    skeleton
 
-            case .loaded(let result):
-                if result.isEmpty {
-                    emptyCard
-                } else {
-                    resultSections(result)
+                case .loaded(let result):
+                    if result.isEmpty {
+                        emptyCard
+                    } else {
+                        resultSections(result)
+                    }
+
+                case .failed(let error):
+                    errorCard(error)
                 }
-
-            case .failed(let error):
-                errorCard(error)
             }
+        }
+        .transition(.opacity)
+    }
+
+    /// Стабильный ключ фазы: fade только при скелетон → результат/ошибка,
+    /// а не на каждый новый результат ввода.
+    private var contentKey: String {
+        if viewModel.isShowingHistory { return "history" }
+        switch viewModel.state {
+        case .idle: return "idle"
+        case .loading: return "loading"
+        case .loaded: return "loaded"
+        case .failed: return "failed"
         }
     }
 
@@ -232,8 +262,17 @@ struct SearchView: View {
         if !result.artists.isEmpty {
             cardStrip(title: "Артисты") {
                 ForEach(result.artists) { artist in
-                    // TODO(Фаза 7): экран артиста. Пока карточка только показывает имя.
-                    SearchArtistCard(artist: artist)
+                    if artist.id > 0 {
+                        Button {
+                            Haptics.selection()
+                            route = .artist(artist.id)
+                        } label: {
+                            SearchArtistCard(artist: artist)
+                        }
+                        .buttonStyle(PressableStyle(scale: 0.97))
+                    } else {
+                        SearchArtistCard(artist: artist)
+                    }
                 }
             }
         }
@@ -241,8 +280,13 @@ struct SearchView: View {
         if !result.albums.isEmpty {
             cardStrip(title: "Альбомы") {
                 ForEach(result.albums) { album in
-                    // TODO(Фаза 7): экран альбома.
-                    SearchAlbumCard(album: album)
+                    Button {
+                        Haptics.selection()
+                        route = .album(album.id)
+                    } label: {
+                        SearchAlbumCard(album: album)
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.97))
                 }
             }
         }
@@ -251,7 +295,7 @@ struct SearchView: View {
             cardStrip(title: "Плейлисты") {
                 ForEach(result.playlists) { playlist in
                     Button {
-                        openedPlaylist = playlist
+                        route = .playlist(playlist)
                     } label: {
                         SearchPlaylistCard(playlist: playlist)
                     }
@@ -302,26 +346,8 @@ struct SearchView: View {
     }
 
     private func errorCard(_ error: APIError) -> some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: error.requiresReauthentication ? "lock.slash" : "exclamationmark.triangle")
-                        .font(.system(size: 16, weight: .semibold))
-
-                    Text(error.requiresReauthentication ? "Сессия истекла" : "Поиск не удался")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(tone.primary)
-
-                Text(error.localizedDescription)
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                GlassButton("Повторить", systemImage: "arrow.clockwise") {
-                    viewModel.retry()
-                }
-            }
+        ErrorStateCard(error: error, context: .search) {
+            viewModel.retry()
         }
     }
 
@@ -337,6 +363,24 @@ struct SearchView: View {
                     .foregroundStyle(tone.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+// MARK: - Маршрут поиска
+
+/// Куда открывается карточка результата. Один enum — один `.sheet(item:)`:
+/// несколько модальных модификаторов на одном view конфликтуют.
+enum SearchRoute: Identifiable {
+    case playlist(Playlist)
+    case artist(Int)
+    case album(Int)
+
+    var id: String {
+        switch self {
+        case .playlist(let playlist): return "playlist-\(playlist.id)"
+        case .artist(let artistID): return "artist-\(artistID)"
+        case .album(let albumID): return "album-\(albumID)"
         }
     }
 }

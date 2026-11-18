@@ -25,24 +25,28 @@ struct LikedTracksView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
-                        switch viewModel.state {
-                        case .idle, .loading:
-                            skeleton
+                        Group {
+                            switch viewModel.state {
+                            case .idle, .loading:
+                                skeleton
 
-                        case .loaded(let tracks):
-                            if tracks.isEmpty {
-                                emptyCard
-                            } else {
-                                list(tracks)
+                            case .loaded(let tracks):
+                                if tracks.isEmpty {
+                                    emptyCard
+                                } else {
+                                    list(tracks)
+                                }
+
+                            case .failed(let error):
+                                errorCard(error)
                             }
-
-                        case .failed(let error):
-                            errorCard(error)
                         }
+                        .transition(.opacity)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 6)
                     .padding(.bottom, 40)
+                    .animation(.easeInOut(duration: 0.25), value: stateKey)
                 }
             }
         }
@@ -114,6 +118,15 @@ struct LikedTracksView: View {
 
     // MARK: - Состояния
 
+    private var stateKey: Int {
+        switch viewModel.state {
+        case .idle: return 0
+        case .loading: return 1
+        case .loaded: return 2
+        case .failed: return 3
+        }
+    }
+
     private var skeleton: some View {
         GlassCard(cornerRadius: 24, padding: 8) {
             VStack(spacing: 0) {
@@ -126,26 +139,8 @@ struct LikedTracksView: View {
     }
 
     private func errorCard(_ error: APIError) -> some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: error.requiresReauthentication ? "lock.slash" : "exclamationmark.triangle")
-                        .font(.system(size: 16, weight: .semibold))
-
-                    Text(error.requiresReauthentication ? "Сессия истекла" : "Не удалось загрузить")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(tone.primary)
-
-                Text(error.localizedDescription)
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                GlassButton("Повторить", systemImage: "arrow.clockwise") {
-                    Task { await viewModel.retry() }
-                }
-            }
+        ErrorStateCard(error: error, context: .track) {
+            Task { await viewModel.retry() }
         }
     }
 

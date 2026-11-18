@@ -49,7 +49,7 @@ final class WaveViewModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch let error as APIError {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !error.isCancellation else { return }
             logger.error("Волна: \(error.localizedDescription, privacy: .public)")
             state = .failed(error)
         } catch {
