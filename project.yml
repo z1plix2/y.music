@@ -35,6 +35,10 @@ targets:
     platform: iOS
     sources:
       - path: YMusic
+      - path: Shared
+    dependencies:
+      - target: YMusicWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.ymusic
@@ -42,6 +46,11 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: YMusic/Resources/YMusic.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.example.ymusic
     info:
       path: YMusic/Resources/Info.plist
       properties:
@@ -60,3 +69,31 @@ targets:
           - CFBundleURLName: com.example.ymusic.track
             CFBundleURLSchemes:
               - ymusic
+
+  YMusicWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: YMusicWidget
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.ymusic.widget
+        PRODUCT_NAME: YMusicWidget
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+        SKIP_INSTALL: "YES"
+    info:
+      path: YMusicWidget/Info.plist
+      properties:
+        CFBundleDisplayName: YMusic
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: YMusicWidget/YMusicWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.example.ymusic

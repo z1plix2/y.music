@@ -1,6 +1,12 @@
 import OSLog
 import SwiftUI
 
+extension Notification.Name {
+    /// Виджет не может открыть sheet сам: он лишь дергает URL,
+    /// а `MainView` по этому уведомлению показывает плеер.
+    static let openNowPlaying = Notification.Name("openNowPlaying")
+}
+
 @main
 struct YMusicApp: App {
     var body: some Scene {
@@ -103,7 +109,15 @@ struct RootView: View {
     /// в `pendingTrackID` — на холодном старте `onOpenURL` приходит раньше
     /// готовности плеера.
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "ymusic", url.host == "track" else { return }
+        guard url.scheme == "ymusic" else { return }
+
+        if url.host == "nowplaying" {
+            guard case .signedIn = auth.state else { return }
+            NotificationCenter.default.post(name: .openNowPlaying, object: nil)
+            return
+        }
+
+        guard url.host == "track" else { return }
 
         let rawID = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let trackID = Int(rawID) else {
