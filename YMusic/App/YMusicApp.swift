@@ -12,7 +12,6 @@ struct YMusicApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .preferredColorScheme(.dark)
         }
     }
 }
@@ -25,6 +24,10 @@ struct YMusicApp: App {
 @MainActor
 struct RootView: View {
     @StateObject private var auth = AuthService()
+
+    /// Тема живёт выше `WindowGroup`, чтобы `preferredColorScheme`
+    /// переключался сразу и не сбрасывался при пересоздании экранов.
+    @StateObject private var settings = AppSettingsStore.shared
 
     // Для проверки управления без сети можно подменить источник:
     // `AudioPlayer(streamProvider: BundledDemoStreamProvider())`
@@ -63,7 +66,9 @@ struct RootView: View {
         .environmentObject(auth)
         .environmentObject(player)
         .environmentObject(waveSession)
+        .environmentObject(settings)
         .environmentObject(ListeningStatsStore.shared)
+        .preferredColorScheme(settings.colorScheme)
         .animation(.easeInOut(duration: 0.35), value: auth.state)
         .task {
             await auth.restore()
