@@ -61,6 +61,11 @@ final class AudioPlayer: ObservableObject {
     /// Качество стрима — из настроек: 320 или 192 кбит/с.
     private var maxBitrate: Int { AppSettingsStore.shared.bitrate }
 
+    /// Вибро в такт: живёт только при включённой настройке и на устройстве
+    /// с Taptic Engine. Владелец — плеер, чтобы гасить его вместе с треком.
+    private var beatHaptics: BeatHapticsEngine?
+    private var currentStreamURL: URL?
+
     /// 60 тиков по 0.5 с = 30 с: период чекпойнта состояния и обновления
     /// elapsed у системы.
     private static let checkpointTicks = 60
@@ -127,6 +132,23 @@ final class AudioPlayer: ObservableObject {
         nowPlaying.install()
         nowPlaying.setCommandsEnabled(true)
         syncNowPlaying()
+
+        if isPlaying {
+            beatHaptics?.resume()
+        }
+    }
+
+    /// Настройку «Вибрирует в такт» переключили. При включении на играющем
+    /// треке движок стартует сразу; при выключении — гасим без ожидания
+    /// следующего трека.
+    func updateBeatHapticsPreference() {
+        guard UserDefaults.standard.bool(forKey: "beatHapticsEnabled") else {
+            stopBeatHaptics()
+            return
+        }
+
+        guard let currentStreamURL, isPlaying else { return }
+        startBeatHaptics(for: currentStreamURL)
     }
 
     // MARK: - Публичное управление
@@ -302,6 +324,7 @@ final class AudioPlayer: ObservableObject {
             guard !Task.isCancelled else { return }
             self.player.pause()
             self.status = .paused
+            self.beatHaptics?.pause()
             self.player.volume = restoreVolume
             self.sleepTimerEndsAt = nil
             self.sleepTimerTask = nil
@@ -325,6 +348,7 @@ final class AudioPlayer: ObservableObject {
             wasPlayingBeforeInterruption = false
             player.pause()
             status = .paused
+            beatHaptics?.pause()
             persist()
             syncNowPlaying()
         case .paused:
@@ -334,6 +358,7 @@ final class AudioPlayer: ObservableObject {
                 activateSessionIfNeeded()
                 player.play()
                 status = .playing
+                beatHaptics?.resume()
                 syncNowPlaying()
             }
         case .idle, .failed:
@@ -434,6 +459,7 @@ final class AudioPlayer: ObservableObject {
 
         invalidateItemObservations()
         nowPlaying.teardown()
+        stopBeatHaptics()
 
         deactivateSession()
     }
@@ -512,6 +538,8 @@ final class AudioPlayer: ObservableObject {
             let stream = try await streamProvider.stream(for: track, maxBitrate: maxBitrate)
             guard generation == loadGeneration, !Task.isCancelled else { return }
 
+            currentStreamURL = stream.url
+
             if case .preview = stream {
                 notice = "Без Plus доступно только превью"
             }
@@ -525,6 +553,8 @@ final class AudioPlayer: ObservableObject {
             player.replaceCurrentItem(with: item)
             player.play()
             status = .playing
+
+            startBeatHaptics(for: stream.url)
 
             if let seekTarget = pendingSeek {
                 pendingSeek = nil
@@ -579,6 +609,7 @@ final class AudioPlayer: ObservableObject {
             player.pause()
             seek(to: 0)
             status = .paused
+            beatHaptics?.pause()
             syncNowPlaying()
             updateWidgetSnapshot(reload: true)
             return
@@ -752,6 +783,7 @@ final class AudioPlayer: ObservableObject {
                 activateSessionIfNeeded()
                 player.play()
                 status = .playing
+                beatHaptics?.resume()
                 syncNowPlaying()
             }
         }
@@ -763,6 +795,7 @@ final class AudioPlayer: ObservableObject {
         wasPlayingBeforeInterruption = false
         player.pause()
         status = .paused
+        beatHaptics?.pause()
         persist()
         syncNowPlaying()
         return true
@@ -822,6 +855,7 @@ final class AudioPlayer: ObservableObject {
             if isPlaying {
                 player.pause()
                 status = .paused
+                beatHaptics?.pause()
                 persist()
                 syncNowPlaying()
             }
@@ -839,6 +873,7 @@ final class AudioPlayer: ObservableObject {
             } else {
                 player.play()
                 status = .playing
+                beatHaptics?.resume()
                 syncNowPlaying()
             }
 
@@ -861,8 +896,36 @@ final class AudioPlayer: ObservableObject {
         wasPlayingBeforeInterruption = false
         player.pause()
         status = .paused
+        beatHaptics?.pause()
         persist()
         syncNowPlaying()
+    }
+
+    // MARK: - Вибро в такт
+
+/// Один движок на трек: анализ стартует параллельно с воспроизведением,
+/// а `stopBeatHaptics` удаляет временный файл. При выключенной настройке
+/// движок не создаётся вообще — CPU и сеть не тратятся.
+private func startBeatHaptics(for url: URL) {
+        stopBeatHaptics()
+
+        guard UserDefaults.standard.bool(forKey: "beatHapticsEnabled"),
+              BeatHapticsEngine.isSupported
+        else {
+            return
+        }
+
+        let engine = BeatHapticsEngine()
+        engine.timeProvider = { [weak self] in
+            self?.currentTime ?? 0
+        }
+        beatHaptics = engine
+        engine.start(streamURL: url)
+    }
+
+    private func stopBeatHaptics() {
+        beatHaptics?.stop()
+        beatHaptics = nil
     }
 
     // MARK: - Persistence

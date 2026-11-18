@@ -18,6 +18,13 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
     @State private var infoSheet: SettingsInfoSheet?
 
+    /// Настройка живёт в `UserDefaults`, а не в `AppSettingsStore`: её читает
+    /// `AudioPlayer` на старте трека, синхронизация через published-объект
+    /// здесь только добавила бы связность.
+    @AppStorage("beatHapticsEnabled") private var beatHapticsEnabled = false
+    @AppStorage("beatHapticsWarningShown") private var beatHapticsWarningShown = false
+    @State private var showBeatHapticsAlert = false
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
@@ -77,6 +84,19 @@ struct SettingsView: View {
                     credits
                 }
             }
+        }
+        .alert("Вибрирует в такт", isPresented: $showBeatHapticsAlert) {
+            Button("Включить") {
+                beatHapticsWarningShown = true
+                beatHapticsEnabled = true
+                player.updateBeatHapticsPreference()
+            }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Телефон будет вибрировать в такт музыке. Работает только на iPhone с Taptic Engine.")
+        }
+        .onChange(of: beatHapticsEnabled) { _ in
+            player.updateBeatHapticsPreference()
         }
     }
 
@@ -220,6 +240,17 @@ struct SettingsView: View {
                         "Кроссфейд между треками",
                         subtitle: "Плавное затухание при переключении",
                         isOn: $settings.crossfadeEnabled
+                    )
+
+                    Divider().overlay(tone.border.opacity(0.12))
+
+                    toggleRow(
+                        "Вибрирует в такт музыке",
+                        subtitle: BeatHapticsSupport.isSupported
+                            ? "Тактильный бит: kick, snare, hi-hat"
+                            : "Не поддерживается на этом устройстве",
+                        isOn: beatHapticsBinding,
+                        isEnabled: BeatHapticsSupport.isSupported
                     )
 
                     Divider().overlay(tone.border.opacity(0.12))
@@ -431,6 +462,21 @@ struct SettingsView: View {
     }
 
     // MARK: - Выход
+
+    /// Первое включение показывает предупреждение, дальше переключатель
+    /// работает обычным `Binding`.
+    private var beatHapticsBinding: Binding<Bool> {
+        Binding(
+            get: { beatHapticsEnabled },
+            set: { newValue in
+                if newValue, !beatHapticsWarningShown {
+                    showBeatHapticsAlert = true
+                    return
+                }
+                beatHapticsEnabled = newValue
+            }
+        )
+    }
 
     private func signOut() {
         onClose()
