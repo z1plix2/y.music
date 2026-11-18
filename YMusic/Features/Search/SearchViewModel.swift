@@ -23,6 +23,10 @@ final class SearchViewModel: ObservableObject {
     @Published var query: String = ""
     @Published private(set) var state: State = .idle
     @Published private(set) var history: [String] = []
+    /// Догрузка следующей страницы треков («Показать ещё»).
+    @Published private(set) var isLoadingMore = false
+    /// Сервер вернул полную страницу — возможно, есть следующая.
+    @Published private(set) var hasMoreTracks = false
 
     let userID: Int
 
@@ -31,6 +35,7 @@ final class SearchViewModel: ObservableObject {
     private let logger = Logger(subsystem: "com.example.ymusic", category: "Search")
 
     private var pendingTask: Task<Void, Never>?
+    private var page = 0
 
     init(
         userID: Int,
@@ -77,6 +82,9 @@ final class SearchViewModel: ObservableObject {
         cancelPending()
         query = ""
         state = .idle
+        page = 0
+        hasMoreTracks = false
+        isLoadingMore = false
     }
 
     func clearHistory() {
@@ -119,6 +127,9 @@ final class SearchViewModel: ObservableObject {
     /// отмена `pendingTask` отменяет и вложенный `await`.
     private func startSearch(_ text: String) {
         state = .loading
+        page = 0
+        hasMoreTracks = false
+        isLoadingMore = false
 
         pendingTask = Task { [weak self] in
             guard let self else { return }
@@ -130,6 +141,7 @@ final class SearchViewModel: ObservableObject {
                 )
                 guard !Task.isCancelled else { return }
                 self.state = .loaded(result)
+                self.hasMoreTracks = result.tracks.count >= Self.pageSize
                 self.history = self.historyStore.record(text, userID: self.userID)
             } catch is CancellationError {
                 return
@@ -143,6 +155,84 @@ final class SearchViewModel: ObservableObject {
                 self.state = .failed(.unknown(error.localizedDescription))
             }
         }
+    }
+
+    // MARK: - Пагинация
+
+    /// Следующая страница треков. Артисты/альбомы/плейлисты остаются из
+    /// первой страницы: «Показать ещё» относится только к длинному списку
+    /// треков, остальные секции — витрины.
+    func loadMore() {
+        guard hasMoreTracks, !isLoadingMore else { return }
+
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let current = results else { return }
+
+        let nextPage = page + 1
+        isLoadingMore = true
+
+        pendingTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.isLoadingMore = false
+            }
+
+            do {
+                let next = try await self.provider.search(
+                    query: text,
+                    page: nextPage,
+                    limit: Self.pageSize
+                )
+                guard !Task.isCancelled else { return }
+
+                self.page = nextPage
+                self.hasMoreTracks = next.tracks.count >= Self.pageSize
+                self.state = .loaded(Self.merge(current, next))
+            } catch is CancellationError {
+                return
+            } catch let error as APIError {
+                guard !Task.isCancelled, !error.isCancellation else { return }
+                // Ошибку догрузки не показываем карточкой: уже найденное
+                // должно остаться на экране, кнопка даёт повторить.
+                self.logger.error("Поиск, страница: \(error.localizedDescription, privacy: .public)")
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.logger.error("Поиск, страница: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private static func merge(_ old: SearchResult, _ new: SearchResult) -> SearchResult {
+        var tracks = old.tracks
+        var seenTracks = Set(tracks.map(\.id))
+        for track in new.tracks where seenTracks.insert(track.id).inserted {
+            tracks.append(track)
+        }
+
+        var artists = old.artists
+        var seenArtists = Set(artists.map(\.id))
+        for artist in new.artists where seenArtists.insert(artist.id).inserted {
+            artists.append(artist)
+        }
+
+        var albums = old.albums
+        var seenAlbums = Set(albums.map(\.id))
+        for album in new.albums where seenAlbums.insert(album.id).inserted {
+            albums.append(album)
+        }
+
+        var playlists = old.playlists
+        var seenPlaylists = Set(playlists.map(\.id))
+        for playlist in new.playlists where seenPlaylists.insert(playlist.id).inserted {
+            playlists.append(playlist)
+        }
+
+        return SearchResult(
+            tracks: tracks,
+            artists: artists,
+            albums: albums,
+            playlists: playlists
+        )
     }
 
     private func cancelPending() {

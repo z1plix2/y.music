@@ -151,7 +151,10 @@ final class NowPlayingCenter {
             MPMediaItemPropertyPlaybackDuration: lastDuration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: lastElapsed,
             MPNowPlayingInfoPropertyPlaybackRate: lastIsPlaying ? 1.0 : 0.0,
-            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            // Явный тип контента: без него некоторые версии iOS показывают
+            // карточку без обложки в Control Center.
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue
         ]
 
         if let album = track.albums?.first?.title, !album.isEmpty {
