@@ -42,6 +42,9 @@ struct RootView: View {
     /// переключался сразу и не сбрасывался при пересоздании экранов.
     @StateObject private var settings = AppSettingsStore.shared
 
+    /// Визуальный стиль: Liquid Glass, минимализм, Яндекс, AMOLED, винил.
+    @StateObject private var themeStore = ThemeStore.shared
+
     // Для проверки управления без сети можно подменить источник:
     // `AudioPlayer(streamProvider: BundledDemoStreamProvider())`
     // и положить demo-track.m4a в бандл.
@@ -84,9 +87,12 @@ struct RootView: View {
         .environmentObject(player)
         .environmentObject(waveSession)
         .environmentObject(settings)
+        .environmentObject(themeStore)
         .environmentObject(ListeningStatsStore.shared)
+        .environment(\.appTheme, themeStore.current)
         .preferredColorScheme(settings.colorScheme)
         .animation(.easeInOut(duration: 0.35), value: auth.state)
+        .animation(.easeInOut(duration: 0.3), value: themeStore.current)
         .task {
             await auth.restore()
             resolvePendingDeepLink()

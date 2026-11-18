@@ -14,6 +14,7 @@ struct DynamicBackground<Content: View>: View {
     @State private var palette: ColorPalette
     @State private var isDrifting = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appTheme) private var theme
     /// Тяжёлый фон (пятна + дрейф) живёт только на сильном железе.
     @ObservedObject private var device = DeviceProfile.shared
 
@@ -49,14 +50,18 @@ struct DynamicBackground<Content: View>: View {
         .onDisappear { isDrifting = false }
         .onChange(of: scenePhase) { _ in updateDrift() }
         .onChange(of: device.usesLightBackground) { _ in updateDrift() }
+        .onChange(of: theme) { _ in updateDrift() }
     }
 
     /// Дрейф пятен — бесконечная анимация. В фоне и когда экран ушёл
     /// с глаз, она не нужна: останавливаем, чтобы не жечь GPU вхолостую.
     private func updateDrift() {
         // На слабом профиле и при нагреве фон статичный: дрейф — это
-        // бесконечная анимация двух больших blur-слоёв.
-        let shouldDrift = scenePhase == .active && !device.usesLightBackground
+        // бесконечная анимация двух больших blur-слоёв. Темы без живого
+        // фона (minimal, amoled) тоже не анимируют ничего.
+        let shouldDrift = scenePhase == .active
+            && theme.useDynamicBackground
+            && !device.usesLightBackground
         guard isDrifting != shouldDrift else { return }
         isDrifting = shouldDrift
     }
@@ -65,23 +70,30 @@ struct DynamicBackground<Content: View>: View {
 
     @ViewBuilder
     private var backgroundLayers: some View {
-        if device.usesLightBackground {
+        if !theme.useDynamicBackground {
+            plainBackground
+        } else if device.usesLightBackground {
             lightBackground
         } else {
             fullBackground
         }
     }
 
+    /// Без динамики: только градиент темы. Ни blur, ни пятен, ни анимаций.
+    private var plainBackground: some View {
+        LinearGradient(
+            colors: theme.backgroundGradient,
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .allowsHitTesting(false)
+    }
+
     /// Экономный вариант: один градиент вместо двух размытых кругов.
     private var lightBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.05, green: 0.05, blue: 0.07),
-                    palette.primary.color.opacity(0.30),
-                    palette.secondary.color.opacity(0.22),
-                    Color(red: 0.06, green: 0.05, blue: 0.09)
-                ],
+                colors: theme.backgroundGradient,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -98,16 +110,14 @@ struct DynamicBackground<Content: View>: View {
     private var fullBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.05, green: 0.05, blue: 0.07),
-                    Color(red: 0.07, green: 0.06, blue: 0.10)
-                ],
+                colors: theme.backgroundGradient,
                 startPoint: .top,
                 endPoint: .bottom
             )
 
             Circle()
                 .fill(palette.primary.color)
+                .overlay(Circle().fill(theme.palette.primaryAccent.opacity(0.35)))
                 .frame(width: 540, height: 540)
                 .blur(radius: 100)
                 .opacity(0.50)
@@ -116,6 +126,7 @@ struct DynamicBackground<Content: View>: View {
 
             Circle()
                 .fill(palette.secondary.color)
+                .overlay(Circle().fill(theme.palette.secondaryAccent.opacity(0.30)))
                 .frame(width: 480, height: 480)
                 .blur(radius: 110)
                 .opacity(0.40)

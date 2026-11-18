@@ -13,6 +13,7 @@ struct SettingsView: View {
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var waveSession: WaveSessionController
     @EnvironmentObject private var settings: AppSettingsStore
+    @EnvironmentObject private var themeStore: ThemeStore
     @Environment(\.contentTone) private var tone
 
     @State private var showSignOutConfirm = false
@@ -111,35 +112,35 @@ struct SettingsView: View {
 
     // MARK: - Фон
 
-    /// Свой фон, чтобы экран не зависел от текущей обложки.
+    /// Свой фон, чтобы экран не зависел от текущей обложки. Для тем без
+/// живого фона это просто градиент темы — без blur и анимаций.
     private var settingsBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.07, green: 0.05, blue: 0.12),
-                    Color(red: 0.03, green: 0.03, blue: 0.06)
-                ],
+                colors: themeStore.current.backgroundGradient,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
 
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color(red: 0.92, green: 0.16, blue: 0.22).opacity(0.28),
-                            .clear
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 260
+            if themeStore.current.useDynamicBackground {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                themeStore.current.palette.primaryAccent.opacity(0.28),
+                                .clear
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 260
+                        )
                     )
-                )
-                .frame(width: 520, height: 520)
-                .offset(x: -140, y: -300)
-                .blur(radius: 40)
-                .allowsHitTesting(false)
+                    .frame(width: 520, height: 520)
+                    .offset(x: -140, y: -300)
+                    .blur(radius: 40)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -219,12 +220,32 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             GlassSectionHeader(
                 "Внешний вид",
-                subtitle: "Тема сохраняется между запусками"
+                subtitle: "Стиль применяется сразу и сохраняется"
             )
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ],
+                spacing: 12
+            ) {
+                ForEach(AppTheme.allCases) { theme in
+                    ThemePreviewCard(
+                        theme: theme,
+                        isSelected: themeStore.current == theme
+                    ) {
+                        Haptics.selection()
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            themeStore.select(theme)
+                        }
+                    }
+                }
+            }
 
             GlassCard(cornerRadius: 22, padding: 16) {
                 VStack(alignment: .leading, spacing: 12) {
-                    rowTitle("Тема", subtitle: "Светлая, тёмная или как в системе")
+                    rowTitle("Светлая или тёмная", subtitle: "Поверх выбранного стиля")
 
                     Picker("Тема", selection: $settings.theme) {
                         ForEach(AppSettingsStore.Theme.allCases) { theme in
@@ -647,6 +668,104 @@ struct SettingsView: View {
     }
 }
 
+/// Мини-превью темы: фон, карточка-обложка и кнопка в акценте.
+/// Намеренно без `Material` и картинок: сетка из пяти карточек не должна
+/// тянуть размытие даже ради превью.
+private struct ThemePreviewCard: View {
+    let theme: AppTheme
+    let isSelected: Bool
+    let action: () -> Void
+
+    @Environment(\.contentTone) private var tone
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                preview
+
+                Text(theme.title)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(tone.primary)
+                    .lineLimit(1)
+
+                Text(theme.shortDescription)
+                    .font(.caption2)
+                    .foregroundStyle(tone.tertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 18 * theme.cornerRadiusScale, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.10) : Color.white.opacity(0.045))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 18 * theme.cornerRadiusScale, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? theme.palette.primaryAccent : Color.white.opacity(0.10),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            }
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(theme.palette.primaryAccent)
+                        .padding(6)
+                }
+            }
+        }
+        .buttonStyle(PressableStyle(scale: 0.97))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityLabel("\(theme.title). \(theme.description)")
+    }
+
+    private var preview: some View {
+        ZStack {
+            LinearGradient(
+                colors: theme.backgroundGradient,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(theme.palette.primaryAccent.opacity(0.75))
+                        .frame(width: 22, height: 22)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Capsule().fill(Color.white.opacity(0.75)).frame(width: 44, height: 4)
+                        Capsule().fill(Color.white.opacity(0.35)).frame(width: 30, height: 3)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 4) {
+                    Capsule()
+                        .fill(theme.palette.primaryAccent)
+                        .frame(width: 46, height: 9)
+
+                    Capsule()
+                        .fill(Color.white.opacity(0.14))
+                        .frame(width: 20, height: 9)
+
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(8)
+        }
+        .frame(height: 74)
+        .clipShape(RoundedRectangle(cornerRadius: 12 * theme.cornerRadiusScale, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12 * theme.cornerRadiusScale, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        }
+    }
+}
+
 // MARK: - Вложенные листы
 
 private enum SettingsInfoSheet: String, Identifiable {
@@ -663,6 +782,7 @@ private struct SettingsTextSheet<Content: View>: View {
     let content: Content
 
     @Environment(\.contentTone) private var tone
+    @Environment(\.appTheme) private var theme
 
     init(title: String, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -685,10 +805,7 @@ private struct SettingsTextSheet<Content: View>: View {
         }
         .background(
             LinearGradient(
-                colors: [
-                    Color(red: 0.07, green: 0.05, blue: 0.12),
-                    Color(red: 0.03, green: 0.03, blue: 0.06)
-                ],
+                colors: theme.backgroundGradient,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )

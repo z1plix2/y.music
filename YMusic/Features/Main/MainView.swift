@@ -17,6 +17,7 @@ struct MainView: View {
 
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var waveSession: WaveSessionController
+    @EnvironmentObject private var themeStore: ThemeStore
 
     @StateObject private var catalog: CatalogViewModel
     @StateObject private var likes: LikeStore
@@ -64,6 +65,8 @@ struct MainView: View {
                 .environmentObject(waveSession)
                 .environmentObject(AppSettingsStore.shared)
                 .environmentObject(ListeningStatsStore.shared)
+                .environmentObject(themeStore)
+                .environment(\.appTheme, themeStore.current)
         }
         .onAppear {
             catalog.onSessionExpired = {
