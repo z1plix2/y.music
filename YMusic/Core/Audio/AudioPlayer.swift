@@ -27,6 +27,9 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var recents: [Track] = []
 
+    /// Форма волны текущего трека для скраббера. Пустой массив — скелетон.
+    @Published private(set) var waveform: [Float] = []
+
     /// Конец сна-таймера; `nil`, если таймер не запущен.
     @Published private(set) var sleepTimerEndsAt: Date?
 
@@ -65,6 +68,7 @@ final class AudioPlayer: ObservableObject {
     /// с Taptic Engine. Владелец — плеер, чтобы гасить его вместе с треком.
     private var beatHaptics: BeatHapticsEngine?
     private var currentStreamURL: URL?
+    private var waveformTask: Task<Void, Never>?
 
     /// 60 тиков по 0.5 с = 30 с: период чекпойнта состояния и обновления
     /// elapsed у системы.
@@ -460,6 +464,8 @@ final class AudioPlayer: ObservableObject {
         invalidateItemObservations()
         nowPlaying.teardown()
         stopBeatHaptics()
+        waveformTask?.cancel()
+        waveformTask = nil
 
         deactivateSession()
     }
@@ -539,6 +545,7 @@ final class AudioPlayer: ObservableObject {
             guard generation == loadGeneration, !Task.isCancelled else { return }
 
             currentStreamURL = stream.url
+            startWaveform(for: track, url: stream.url)
 
             if case .preview = stream {
                 notice = "Без Plus доступно только превью"
@@ -928,6 +935,31 @@ private func startBeatHaptics(for url: URL) {
         beatHaptics = nil
     }
 
+    // MARK: - Форма волны
+
+    /// Анализ идёт параллельно воспроизведению и не блокирует старт трека.
+    /// Результат — 200 бинов; если трек уже слушали, они придут из кэша.
+    private func startWaveform(for track: Track, url: URL) {
+        waveformTask?.cancel()
+        waveform = []
+
+        waveformTask = Task { [weak self] in
+            do {
+                let bins = try await WaveformExtractor.shared.waveform(
+                    for: track,
+                    streamURL: url
+                )
+                guard !Task.isCancelled else { return }
+                self?.waveform = bins
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self else { return }
+                self.logger.debug("Форма волны: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     // MARK: - Persistence
 
     private func resetState() {
@@ -938,6 +970,7 @@ private func startBeatHaptics(for url: URL) {
         notice = nil
         isBuffering = false
         pendingSeek = nil
+        waveform = []
         nowPlaying.setCommandsEnabled(false)
         updateWidgetSnapshot(reload: true)
     }

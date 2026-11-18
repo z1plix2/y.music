@@ -24,6 +24,7 @@ struct NowPlayingView: View {
     @State private var artworkDrag: CGFloat = 0
     @State private var artworkPalette: ColorPalette = .brand
     @AppStorage("playerMode") private var playerModeRaw = PlayerMode.standard.rawValue
+    @AppStorage("useWaveformScrubber") private var useWaveformScrubber = true
 
     private var mode: PlayerMode {
         PlayerMode(rawValue: playerModeRaw) ?? .standard
@@ -149,7 +150,14 @@ struct NowPlayingView: View {
                     )
                     .frame(maxWidth: 320)
                     titles
-                    NowPlayingProgress(fallbackDuration: track?.duration ?? 0)
+                    if useWaveformScrubber {
+                        WaveformScrubber(
+                            fallbackDuration: track?.duration ?? 0,
+                            accent: artworkPalette.primary.color
+                        )
+                    } else {
+                        NowPlayingProgress(fallbackDuration: track?.duration ?? 0)
+                    }
                     controls
                     actions
                     statusCard

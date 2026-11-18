@@ -23,6 +23,7 @@ struct SettingsView: View {
     /// здесь только добавила бы связность.
     @AppStorage("beatHapticsEnabled") private var beatHapticsEnabled = false
     @AppStorage("beatHapticsWarningShown") private var beatHapticsWarningShown = false
+    @AppStorage("useWaveformScrubber") private var useWaveformScrubber = true
     @State private var showBeatHapticsAlert = false
 
     var body: some View {
@@ -263,6 +264,14 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    Divider().overlay(tone.border.opacity(0.12))
+
+                    toggleRow(
+                        "Форма волны при скраббинге",
+                        subtitle: "Столбики вместо слайдера",
+                        isOn: $useWaveformScrubber
+                    )
                 }
             }
         }
