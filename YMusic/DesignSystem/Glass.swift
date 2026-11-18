@@ -353,6 +353,19 @@ struct LiquidBackdrop: View {
     @State private var animate = false
 
     var body: some View {
+        // `Color.clear` + `.background`: пятна с фиксированными размерами
+        // не должны растягивать родительский ZStack шире экрана.
+        Color.clear
+            .background { layers }
+            .ignoresSafeArea()
+            .onAppear {
+                withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
+                    animate = true
+                }
+            }
+    }
+
+    private var layers: some View {
         ZStack {
             LinearGradient(
                 colors: [
@@ -370,12 +383,7 @@ struct LiquidBackdrop: View {
             blob(Color(red: 0.10, green: 0.65, blue: 0.85), size: 260,
                  x: animate ? 90 : 20, y: animate ? 320 : 120, opacity: 0.3)
         }
-        .ignoresSafeArea()
-        .onAppear {
-            withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
-                animate = true
-            }
-        }
+        .allowsHitTesting(false)
     }
 
     private func blob(_ color: Color, size: CGFloat, x: CGFloat, y: CGFloat, opacity: Double) -> some View {

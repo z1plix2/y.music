@@ -29,7 +29,13 @@ struct DynamicBackground<Content: View>: View {
 
     var body: some View {
         ZStack {
-            backgroundLayers
+            // Прозрачный слой задаёт размер экрана, а пятна рисуются в его
+            // background: у них фиксированные 540×540, и если положить их
+            // прямым ребёнком ZStack, корень становится шире экрана —
+            // контент обрезается слева и справа. Фон не должен участвовать
+            // в расчёте layout.
+            Color.clear
+                .background { backgroundLayers }
                 .ignoresSafeArea()
 
             content
