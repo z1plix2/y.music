@@ -557,7 +557,12 @@ final class AudioPlayer: ObservableObject {
     /// Нагрев `.critical`: тихо останавливаем звук и тяжёлые эффекты.
     /// Пользователь сам решит, когда продолжить; тумблеры не трогаем.
     func pauseForHeat() {
-        guard status == .playing || status == .preparing else { return }
+        switch status {
+        case .playing, .preparing:
+            break
+        case .idle, .paused, .failed:
+            return
+        }
 
         cancelAutoDJ(restore: true)
         player.pause()
