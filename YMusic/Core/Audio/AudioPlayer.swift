@@ -80,9 +80,18 @@ final class AudioPlayer: ObservableObject {
     private var isDJTransitionActive = false
     private var pendingDJIntro = false
 
+    /// Gapless: адрес следующего трека, скачанный заранее.
+    private var prefetchedTrackID: Int?
+    private var prefetchedURL: URL?
+    private var prefetchTask: Task<Void, Never>?
+
+    /// Скорость воспроизведения: 0.5…2.0, тон сохраняет `.spectral`.
+    @Published private(set) var playbackRate: Float = 1.0
+
     /// 60 тиков по 0.5 с = 30 с: период чекпойнта состояния и обновления
     /// elapsed у системы.
     private static let checkpointTicks = 60
+    private static let playbackRateKey = "playbackRate"
 
     private var userID: Int?
     private var timeObserverToken: Any?
@@ -116,6 +125,9 @@ final class AudioPlayer: ObservableObject {
 
         installNowPlaying()
         installObservers()
+
+        let stored = UserDefaults.standard.float(forKey: Self.playbackRateKey)
+        playbackRate = Self.allowedRates.contains(stored) ? stored : 1.0
     }
 
     deinit {
@@ -161,6 +173,35 @@ final class AudioPlayer: ObservableObject {
     func refreshAutoDJPreference() {
         guard !autoDJEnabled else { return }
         cancelAutoDJ(restore: true)
+    }
+
+    // MARK: - Скорость
+
+    static let allowedRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
+    /// Смена скорости на ходу. Auto-DJ при не-1.0 не запускается:
+    /// два множителя (`rate` и DJ-разгон) дали бы непредсказуемый темп.
+    func setPlaybackRate(_ rate: Float) {
+        let snapped = Self.allowedRates.min(by: { abs($0 - rate) < abs($1 - rate) }) ?? 1.0
+        guard snapped != playbackRate else { return }
+
+        playbackRate = snapped
+        UserDefaults.standard.set(snapped, forKey: Self.playbackRateKey)
+
+        if snapped != 1 {
+            cancelAutoDJ(restore: true)
+        }
+
+        if isPlaying, !isDJTransitionActive {
+            player.rate = snapped
+            effectiveRate = snapped
+        }
+    }
+
+    /// Позиция из deep link: применится, как только item будет готов.
+    func seekAfterLoad(_ seconds: Double) {
+        guard seconds.isFinite, seconds >= 0 else { return }
+        pendingSeek = seconds
     }
 
     /// Профиль сменился на ходу (Low Power Mode, нагрев, ручной режим):
@@ -358,12 +399,48 @@ final class AudioPlayer: ObservableObject {
                 try? await Task.sleep(nanoseconds: 40_000_000)
             }
             self.player.volume = target
-            self.player.rate = 1
+            self.player.rate = self.playbackRate
             self.isDJTransitionActive = false
         }
     }
 
-    // MARK: - Auto-DJ
+    // MARK: - Gapless
+
+/// За 10 секунд до конца трека качаем адрес следующего: `handleTrackEnded`
+/// потом не ждёт сеть и трек начинается без паузы.
+private func prefetchUpcomingIfNeeded() {
+    guard prefetchedURL == nil, !isDJTransitionActive else { return }
+    guard duration > 15, currentTime > 0, currentTime >= duration - 10 else { return }
+    guard let next = queue.upNext.first?.track else { return }
+    guard next.id != prefetchedTrackID else { return }
+
+    prefetchedTrackID = next.id
+    prefetchedURL = nil
+    prefetchTask?.cancel()
+
+    prefetchTask = Task { [weak self] in
+        guard let self else { return }
+        do {
+            let stream = try await self.streamProvider.stream(for: next, maxBitrate: self.maxBitrate)
+            guard !Task.isCancelled, self.prefetchedTrackID == next.id else { return }
+            self.prefetchedURL = stream.url
+        } catch {
+            // Не критично: конец трека уйдёт обычным медленным путём.
+            self.logger.debug("Prefetch: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+/// Отдаёт адрес один раз: после сборки `AVPlayerItem` кэш не нужен.
+private func takePrefetchedURL(for trackID: Int) -> URL? {
+    guard prefetchedTrackID == trackID, let url = prefetchedURL else { return nil }
+    prefetchedTrackID = nil
+    prefetchedURL = nil
+    prefetchTask = nil
+    return url
+}
+
+// MARK: - Auto-DJ
 
     /// Плавный переход без второго плеера: за 4 секунды до конца
     /// ускоряемся на 8 % и уводим громкость в ноль, следующий трек
@@ -376,6 +453,7 @@ final class AudioPlayer: ObservableObject {
 
     private func updateAutoDJ() {
         guard autoDJEnabled,
+              playbackRate == 1.0,
               isPlaying,
               duration > 10,
               !isDJTransitionActive
@@ -391,8 +469,8 @@ final class AudioPlayer: ObservableObject {
 
     private func startDJOutro() {
         isDJTransitionActive = true
-        effectiveRate = 1.08
-        player.rate = 1.08
+        effectiveRate = playbackRate * 1.08
+        player.rate = playbackRate * 1.08
 
         djTask?.cancel()
         let target = volume
@@ -415,8 +493,8 @@ final class AudioPlayer: ObservableObject {
 
     private func startDJIntro() {
         isDJTransitionActive = true
-        effectiveRate = 0.92
-        player.rate = 0.92
+        effectiveRate = playbackRate * 0.92
+        player.rate = playbackRate * 0.92
         player.volume = 0
 
         djTask?.cancel()
@@ -428,13 +506,13 @@ final class AudioPlayer: ObservableObject {
             for step in 1...8 {
                 guard !Task.isCancelled else {
                     self.player.volume = target
-                    self.player.rate = 1
-                    self.effectiveRate = 1
+                    self.player.rate = self.playbackRate
+                    self.effectiveRate = self.playbackRate
                     return
                 }
                 let progress = Float(step) / 8
                 self.player.volume = target * progress
-                self.player.rate = 0.92 + 0.08 * progress
+                self.player.rate = self.playbackRate * (0.92 + 0.08 * progress)
                 self.effectiveRate = self.player.rate
                 do {
                     try await Task.sleep(nanoseconds: 250_000_000)
@@ -444,8 +522,8 @@ final class AudioPlayer: ObservableObject {
             }
 
             self.player.volume = target
-            self.player.rate = 1
-            self.effectiveRate = 1
+            self.player.rate = self.playbackRate
+            self.effectiveRate = self.playbackRate
             self.isDJTransitionActive = false
         }
     }
@@ -456,11 +534,11 @@ final class AudioPlayer: ObservableObject {
         djTask = nil
 
         if restore {
-            player.rate = 1
+            player.rate = playbackRate
             player.volume = volume
         }
 
-        effectiveRate = 1
+        effectiveRate = playbackRate
         isDJTransitionActive = false
         pendingDJIntro = false
     }
@@ -645,7 +723,11 @@ final class AudioPlayer: ObservableObject {
         fadeTask = nil
         djTask?.cancel()
         djTask = nil
-        effectiveRate = 1
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        prefetchedTrackID = nil
+        prefetchedURL = nil
+        effectiveRate = playbackRate
         isDJTransitionActive = false
         pendingDJIntro = false
         sleepTimerTask?.cancel()
@@ -742,6 +824,13 @@ final class AudioPlayer: ObservableObject {
             return
         }
 
+        if prefetchedTrackID != track.id {
+            prefetchTask?.cancel()
+            prefetchTask = nil
+            prefetchedTrackID = nil
+            prefetchedURL = nil
+        }
+
         invalidateItemObservations()
         status = .preparing
         isBuffering = true
@@ -754,27 +843,42 @@ final class AudioPlayer: ObservableObject {
         syncNowPlaying()
 
         do {
-            let stream = try await streamProvider.stream(for: track, maxBitrate: maxBitrate)
+            let streamURL: URL
+            var isPreview = false
+
+            // Gapless: адрес следующего трека уже скачан, пока играл текущий,
+            // — конец трека не ждёт сеть.
+            if let prefetched = takePrefetchedURL(for: track.id) {
+                streamURL = prefetched
+            } else {
+                let stream = try await streamProvider.stream(for: track, maxBitrate: maxBitrate)
+                guard generation == loadGeneration, !Task.isCancelled else { return }
+                streamURL = stream.url
+                if case .preview = stream { isPreview = true }
+            }
+
             guard generation == loadGeneration, !Task.isCancelled else { return }
 
-            currentStreamURL = stream.url
-            startAnalysis(for: track, url: stream.url)
+            currentStreamURL = streamURL
+            startAnalysis(for: track, url: streamURL)
 
-            if case .preview = stream {
+            if isPreview {
                 notice = "Без Plus доступно только превью"
             }
 
             activateSessionIfNeeded()
 
-            let item = AVPlayerItem(url: stream.url)
+            let item = AVPlayerItem(url: streamURL)
             item.preferredForwardBufferDuration = 4
+            // Скорость не должна «плыть» по тону.
+            item.audioTimePitchAlgorithm = .spectral
             observe(item)
 
             player.replaceCurrentItem(with: item)
             player.play()
             status = .playing
 
-            startBeatHaptics(for: stream.url)
+            startBeatHaptics(for: streamURL)
 
             if pendingDJIntro {
                 pendingDJIntro = false
@@ -782,8 +886,8 @@ final class AudioPlayer: ObservableObject {
                 startDJIntro()
             } else {
                 player.volume = volume
-                player.rate = 1
-                effectiveRate = 1
+                player.rate = playbackRate
+                effectiveRate = playbackRate
             }
 
             if let seekTarget = pendingSeek {
@@ -921,6 +1025,7 @@ final class AudioPlayer: ObservableObject {
         }
 
         updateAutoDJ()
+        prefetchUpcomingIfNeeded()
 
         tickCount += 1
         // Тик идёт раз в 0.5 с. Прогресс на локскрине система экстраполирует

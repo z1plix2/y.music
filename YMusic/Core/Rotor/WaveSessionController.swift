@@ -125,7 +125,9 @@ final class WaveSessionController: ObservableObject {
 
     // MARK: - Управление
 
-    func start(from track: Track? = nil) {
+    /// `seeds` — переопределение сидов. Нужно для «Играть похожее»:
+    /// сессия запускается с `track:{id}`, а не с общей волны.
+    func start(from track: Track? = nil, seeds: [String]? = nil) {
         guard !isStarting, !isInBackground else { return }
 
         failure = nil
@@ -133,12 +135,13 @@ final class WaveSessionController: ObservableObject {
         startTask?.cancel()
 
         let startFrom = track.map(Self.identifier)
+        let sessionSeeds = seeds ?? settings.seeds
 
         startTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let session = try await self.provider.startSession(
-                    seeds: self.settings.seeds,
+                    seeds: sessionSeeds,
                     trackToStartFrom: startFrom
                 )
                 guard let sessionID = session.radioSessionId else {
