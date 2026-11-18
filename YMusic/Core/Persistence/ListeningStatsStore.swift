@@ -30,6 +30,11 @@ final class ListeningStatsStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.example.ymusic", category: "ListeningStats")
+    /// Запись четырёх ключей + JSON — в фоне, чтобы тик плеера не ждал диск.
+    private let persistQueue = DispatchQueue(
+        label: "com.example.ymusic.listening-stats",
+        qos: .utility
+    )
 
     private var userID: Int?
     private var lastPersist = Date.distantPast
@@ -145,13 +150,24 @@ final class ListeningStatsStore: ObservableObject {
     private func persist() {
         guard let userID else { return }
 
-        defaults.set(snapshot.currentStreak, forKey: key("streak", userID))
-        defaults.set(snapshot.longestStreak, forKey: key("longest", userID))
-        defaults.set(snapshot.lastListenedDay, forKey: key("day", userID))
-        defaults.set(snapshot.totalListeningSeconds + pendingSeconds, forKey: key("seconds", userID))
+        let defaults = self.defaults
+        let snapshot = self.snapshot
+        let pending = pendingSeconds
+        let streakKey = key("streak", userID)
+        let longestKey = key("longest", userID)
+        let dayKey = key("day", userID)
+        let secondsKey = key("seconds", userID)
+        let playsKey = key("plays", userID)
 
-        if let data = try? JSONEncoder().encode(snapshot.playCountsByTrackID) {
-            defaults.set(data, forKey: key("plays", userID))
+        persistQueue.async {
+            defaults.set(snapshot.currentStreak, forKey: streakKey)
+            defaults.set(snapshot.longestStreak, forKey: longestKey)
+            defaults.set(snapshot.lastListenedDay, forKey: dayKey)
+            defaults.set(snapshot.totalListeningSeconds + pending, forKey: secondsKey)
+
+            if let data = try? JSONEncoder().encode(snapshot.playCountsByTrackID) {
+                defaults.set(data, forKey: playsKey)
+            }
         }
     }
 

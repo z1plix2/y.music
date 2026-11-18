@@ -17,8 +17,8 @@ final class ImageLoader {
     private let logger = Logger(subsystem: "com.example.ymusic", category: "ImageLoader")
 
     init() {
-        cache.countLimit = 150
-        cache.totalCostLimit = 64 * 1024 * 1024
+        cache.countLimit = 300
+        cache.totalCostLimit = 96 * 1024 * 1024
     }
 
     func cachedImage(for url: URL) -> UIImage? {
