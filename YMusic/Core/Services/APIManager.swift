@@ -41,6 +41,31 @@ final class APIManager: Sendable {
         return Account(status: status)
     }
 
+    // MARK: - Тексты
+
+    /// Подтверждённая ручка `GET /tracks/{id}/lyrics`. Сам текст отдаётся
+    /// подписанной ссылкой (LRC или plain text), её и загружаем.
+    func lyrics(trackID: Int) async throws -> String? {
+        let meta = try await client.send(
+            Endpoint(path: "tracks/\(trackID)/lyrics"),
+            as: TrackLyricsMeta.self
+        )
+
+        guard let raw = meta.downloadURL, let url = URL(string: raw) else {
+            return nil
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode)
+        else {
+            throw APIError.http(status: -1, payload: nil)
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
     // MARK: - Каталог
 
     func search(text: String, type: String = "all", page: Int = 0) async throws -> SearchResult {

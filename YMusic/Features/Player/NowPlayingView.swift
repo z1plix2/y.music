@@ -20,7 +20,9 @@ struct NowPlayingView: View {
     /// наш же трек. Возвращаем только если пользователь не включил другой.
     @State private var resumeAfterShazam = false
     @State private var isQueuePresented = false
+    @State private var isLyricsPresented = false
     @State private var artworkDrag: CGFloat = 0
+    @State private var artworkPalette: ColorPalette = .brand
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -75,7 +77,26 @@ struct NowPlayingView: View {
             QueueView()
                 .environmentObject(player)
         }
+        .sheet(isPresented: $isLyricsPresented) {
+            if let track {
+                LyricsSheet(track: track)
+                    .environmentObject(player)
+            }
+        }
+        .task(id: track?.artworkURL?.absoluteString ?? "none") {
+            guard let url = track?.artworkURL else { return }
+            guard let palette = await ColorExtractor.shared.palette(
+                forKey: url.absoluteString,
+                from: url
+            ) else { return }
+            withAnimation(.easeInOut(duration: 0.6)) {
+                artworkPalette = palette
+            }
+        }
         .simultaneousGesture(dismissGesture)
+        .onChange(of: track?.id) { _ in
+            Haptics.light()
+        }
         .alert("Видео не готово", isPresented: $showVideoError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -360,7 +381,28 @@ struct NowPlayingView: View {
     // MARK: - Обложка и подписи
 
     private var artwork: some View {
-        CachedAsyncImage(url: track?.artworkURL) {
+        ZStack {
+            if let id = track?.id {
+                coverImage(track?.artworkURL)
+                    .id(id)
+                    .transition(.opacity)
+            } else {
+                coverImage(nil)
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: track?.id)
+        .background { artworkGlow }
+        .offset(x: artworkDrag * 0.22)
+        .simultaneousGesture(artworkDragGesture)
+        .onTapGesture(count: 2) {
+            Haptics.light()
+            player.togglePlayPause()
+        }
+        .padding(.top, 6)
+    }
+
+    private func coverImage(_ url: URL?) -> some View {
+        CachedAsyncImage(url: url) {
             ZStack {
                 Color.white.opacity(0.07)
                 Image(systemName: "music.note")
@@ -376,13 +418,23 @@ struct NowPlayingView: View {
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.4), radius: 26, x: 0, y: 16)
-        .offset(x: artworkDrag * 0.22)
-        .simultaneousGesture(artworkDragGesture)
-        .onTapGesture(count: 2) {
-            Haptics.light()
-            player.togglePlayPause()
-        }
-        .padding(.top, 6)
+    }
+
+    /// Мягкое свечение из палитры обложки. Один слой: blur растеризуется
+    /// через `drawingGroup`, пульсирует уже готовая текстура.
+    private var artworkGlow: some View {
+        RoundedRectangle(cornerRadius: 34, style: .continuous)
+            .fill(artworkPalette.primary.color)
+            .blur(radius: 40)
+            .opacity(0.38)
+            .padding(-10)
+            .drawingGroup()
+            .scaleEffect(player.isPlaying ? 1.05 : 1.0)
+            .animation(
+                .easeInOut(duration: 2).repeatForever(autoreverses: true),
+                value: player.isPlaying
+            )
+            .allowsHitTesting(false)
     }
 
     /// Горизонтальный свайп по обложке: влево — следующий, вправо — предыдущий.
@@ -559,6 +611,22 @@ struct NowPlayingView: View {
         if let track {
             HStack(spacing: 24) {
                 dislikeButton(track)
+
+                Button {
+                    Haptics.selection()
+                    isLyricsPresented = true
+                } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(tone.secondary)
+                        .frame(width: 44, height: 44)
+                        .background { Circle().fill(Color.white.opacity(0.06)) }
+                        .overlay {
+                            Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(PressableStyle(scale: 0.9))
+                .accessibilityLabel("Текст песни")
 
                 LikeButton(
                     isLiked: likes.isLiked(track.id),
