@@ -60,7 +60,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 16)
+            .padding(.top, 14)
             .padding(.bottom, 48)
         }
         .background(settingsBackground)
@@ -511,7 +511,7 @@ struct SettingsView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .frame(width: 22)
 
                 Text(title)
@@ -800,7 +800,7 @@ private struct SettingsTextSheet<Content: View>: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 16)
+            .padding(.top, 14)
             .padding(.bottom, 40)
         }
         .background(

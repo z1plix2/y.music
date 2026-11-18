@@ -67,24 +67,12 @@ struct QueueView: View {
     // MARK: - Шапка
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Очередь")
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(tone.primary)
-
-                    Text("\(player.queue.tracks.count) треков · \(upNext.count) дальше")
-                        .font(.caption)
-                        .foregroundStyle(tone.tertiary)
-                }
-
-                Spacer(minLength: 8)
-
-                GlassIconButton("xmark.circle.fill", label: "Закрыть") {
-                    dismiss()
-                }
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            GlassScreenHeader(
+                title: "Очередь",
+                subtitle: "\(player.queue.tracks.count) треков · \(upNext.count) дальше",
+                onClose: { dismiss() }
+            )
 
             HStack(spacing: 16) {
                 if upNext.count > 1 {
@@ -108,7 +96,7 @@ struct QueueView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, 16)
+        .padding(.top, 14)
         .padding(.bottom, 12)
     }
 
