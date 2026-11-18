@@ -135,6 +135,10 @@ final class ShazamRecognizer: NSObject, ObservableObject {
         do {
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            // Микрофон больше не нужен, а плеер должен снова получить
+            // категорию воспроизведения: иначе следующий play останется
+            // беззвучным до ручной активации.
+            try audioSession.setCategory(.playback, mode: .default)
         } catch {
             logger.debug("Микрофон: \(error.localizedDescription, privacy: .public)")
         }

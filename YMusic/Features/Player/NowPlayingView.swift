@@ -14,6 +14,9 @@ struct NowPlayingView: View {
     @State private var isShazamPresented = false
     @State private var shareImage: ShareImage?
     @State private var isPreparingShare = false
+    /// Плеер глушим на время распознавания: микрофон не должен слышать
+    /// наш же трек. Возвращаем только если пользователь не включил другой.
+    @State private var resumeAfterShazam = false
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -34,6 +37,11 @@ struct NowPlayingView: View {
                 ShazamSheet(recognizer: shazam) {
                     isShazamPresented = false
                     shazam.reset()
+
+                    if resumeAfterShazam, !player.isPlaying {
+                        player.togglePlayPause()
+                    }
+                    resumeAfterShazam = false
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -91,6 +99,10 @@ struct NowPlayingView: View {
 
                 GlassIconButton("mic", label: "Распознать трек") {
                     Haptics.light()
+                    resumeAfterShazam = player.isPlaying
+                    if player.isPlaying {
+                        player.togglePlayPause()
+                    }
                     isShazamPresented = true
                     Task { await shazam.start() }
                 }
