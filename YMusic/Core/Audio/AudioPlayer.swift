@@ -44,6 +44,10 @@ final class AudioPlayer: ObservableObject {
 
     var currentTrack: Track? { queue.currentTrack }
 
+    /// Для видео-открытки: исходный `AVAsset` без доступа к приватному
+    /// `AVPlayer` и позиция, с которой брать 10 секунд.
+    var currentExportAsset: AVAsset? { player.currentItem?.asset }
+
     var isPlaying: Bool {
         if case .playing = status { return true }
         return false

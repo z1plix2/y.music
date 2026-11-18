@@ -65,6 +65,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
         NSMicrophoneUsageDescription: "YMusic слушает, чтобы распознать трек вокруг вас"
+        NSPhotoLibraryAddUsageDescription: "YMusic сохраняет открытку с треком в вашу медиатеку"
         CFBundleURLTypes:
           - CFBundleURLName: com.example.ymusic.track
             CFBundleURLSchemes:

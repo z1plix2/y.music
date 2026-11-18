@@ -13,15 +13,26 @@ struct WaveVisualizer: View {
     var isPlaying: Bool
     var barCount: Int = 28
     var height: CGFloat = 54
+    /// Время кадра для офскрин-рендера (видео-открытка): без `TimelineView`,
+    /// чтобы каждый кадр рисовался ровно в свою секунду.
+    var fixedTime: Double?
 
     @Environment(\.contentTone) private var tone
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
+        Group {
+            if let fixedTime {
+                Canvas { context, size in
+                    draw(in: context, size: size, time: fixedTime)
+                }
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
+                    let time = timeline.date.timeIntervalSinceReferenceDate
 
-            Canvas { context, size in
-                draw(in: context, size: size, time: time)
+                    Canvas { context, size in
+                        draw(in: context, size: size, time: time)
+                    }
+                }
             }
         }
         .frame(height: height)
