@@ -10,6 +10,8 @@ struct NowPlayingView: View {
     @Environment(\.contentTone) private var tone
 
     @State private var scrubValue: Double?
+    @StateObject private var shazam = ShazamRecognizer()
+    @State private var isShazamPresented = false
 
     /// Тап по имени артиста: `MainView` закрывает плеер и открывает экран
     /// артиста. По умолчанию — ничего, чтобы старые вызовы компилировались.
@@ -25,6 +27,16 @@ struct NowPlayingView: View {
         ) {
             content
         }
+        .overlay(alignment: .bottom) {
+            if isShazamPresented {
+                ShazamSheet(recognizer: shazam) {
+                    isShazamPresented = false
+                    shazam.reset()
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: isShazamPresented)
     }
 
     private var content: some View {
@@ -65,7 +77,11 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            Color.clear.frame(width: 40, height: 40)
+            GlassIconButton("mic", label: "Распознать трек") {
+                Haptics.light()
+                isShazamPresented = true
+                Task { await shazam.start() }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
