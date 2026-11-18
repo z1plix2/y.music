@@ -31,6 +31,9 @@ final class AudioPlayer: ObservableObject {
     /// Форма волны текущего трека для скраббера. Пустой массив — скелетон.
     @Published private(set) var waveform: [Float] = []
 
+    /// Текущий rate Auto-DJ: 1.08 на затухании, 0.92 на входе. Для индикатора.
+    @Published private(set) var effectiveRate: Float = 1.0
+
     /// Реальный спектр текущего трека для визуализатора.
     @Published private(set) var spectrum: SpectrumData?
 
@@ -73,6 +76,9 @@ final class AudioPlayer: ObservableObject {
     private var beatHaptics: BeatHapticsEngine?
     private var currentStreamURL: URL?
     private var waveformTask: Task<Void, Never>?
+    private var djTask: Task<Void, Never>?
+    private var isDJTransitionActive = false
+    private var pendingDJIntro = false
 
     /// 60 тиков по 0.5 с = 30 с: период чекпойнта состояния и обновления
     /// elapsed у системы.
@@ -146,6 +152,13 @@ final class AudioPlayer: ObservableObject {
         }
     }
 
+    /// Настройку «Auto-DJ» переключили: выключение сразу возвращает
+    /// нормальный темп и громкость, не дожидаясь конца трека.
+    func refreshAutoDJPreference() {
+        guard !autoDJEnabled else { return }
+        cancelAutoDJ(restore: true)
+    }
+
     /// Единая точка реакции на жизненный цикл: в фоне не должно тикать
     /// ничего, кроме самого `AVPlayer` с background audio.
     func handleScenePhase(_ phase: ScenePhase) {
@@ -190,6 +203,8 @@ final class AudioPlayer: ObservableObject {
     // MARK: - Публичное управление
 
     func play(track: Track, in tracks: [Track]) {
+        cancelAutoDJ(restore: true)
+
         // Сначала по id: у трека из search/истории могут отличаться поля
         // (duration, albums), и синтезированный Equatable дал бы nil → 0.
         let index = tracks.firstIndex { $0.id == track.id }
@@ -207,6 +222,7 @@ final class AudioPlayer: ObservableObject {
 
     func play(tracks: [Track], startAt index: Int) {
         guard !tracks.isEmpty else { return }
+        cancelAutoDJ(restore: true)
         queue = PlaybackQueue(
             tracks: tracks,
             startAt: index,
@@ -317,7 +333,109 @@ final class AudioPlayer: ObservableObject {
                 try? await Task.sleep(nanoseconds: 40_000_000)
             }
             self.player.volume = target
+            self.player.rate = 1
+            self.isDJTransitionActive = false
         }
+    }
+
+    // MARK: - Auto-DJ
+
+    /// Плавный переход без второго плеера: за 4 секунды до конца
+    /// ускоряемся на 8 % и уводим громкость в ноль, следующий трек
+    /// входит с 0.92 и за 2 секунды разгоняется до 1.0.
+    private var autoDJEnabled: Bool {
+        UserDefaults.standard.object(forKey: "autoDJEnabled") as? Bool ?? true
+    }
+
+    private func updateAutoDJ() {
+        guard autoDJEnabled,
+              isPlaying,
+              duration > 10,
+              !isDJTransitionActive
+        else {
+            return
+        }
+
+        let remaining = duration - currentTime
+        guard remaining <= 4, remaining > 0.4 else { return }
+
+        startDJOutro()
+    }
+
+    private func startDJOutro() {
+        isDJTransitionActive = true
+        effectiveRate = 1.08
+        player.rate = 1.08
+
+        djTask?.cancel()
+        let target = volume
+
+        djTask = Task { [weak self] in
+            guard let self else { return }
+
+            // 12 шагов по 250 мс = 3 секунды затухания.
+            for step in 1...12 {
+                guard !Task.isCancelled else { return }
+                self.player.volume = target * Float(12 - step) / 12
+                do {
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func startDJIntro() {
+        isDJTransitionActive = true
+        effectiveRate = 0.92
+        player.rate = 0.92
+        player.volume = 0
+
+        djTask?.cancel()
+        let target = volume
+
+        djTask = Task { [weak self] in
+            guard let self else { return }
+
+            for step in 1...8 {
+                guard !Task.isCancelled else {
+                    self.player.volume = target
+                    self.player.rate = 1
+                    self.effectiveRate = 1
+                    return
+                }
+                let progress = Float(step) / 8
+                self.player.volume = target * progress
+                self.player.rate = 0.92 + 0.08 * progress
+                self.effectiveRate = self.player.rate
+                do {
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                } catch {
+                    return
+                }
+            }
+
+            self.player.volume = target
+            self.player.rate = 1
+            self.effectiveRate = 1
+            self.isDJTransitionActive = false
+        }
+    }
+
+    /// Ручное действие пользователя прерывает переход и возвращает звук.
+    private func cancelAutoDJ(restore: Bool) {
+        djTask?.cancel()
+        djTask = nil
+
+        if restore {
+            player.rate = 1
+            player.volume = volume
+        }
+
+        effectiveRate = 1
+        isDJTransitionActive = false
+        pendingDJIntro = false
     }
 
     // MARK: - Сон-таймер
@@ -358,6 +476,7 @@ final class AudioPlayer: ObservableObject {
             }
 
             guard !Task.isCancelled else { return }
+            self.cancelAutoDJ(restore: true)
             self.player.pause()
             self.status = .paused
             self.beatHaptics?.pause()
@@ -379,6 +498,8 @@ final class AudioPlayer: ObservableObject {
     }
 
     func togglePlayPause() {
+        cancelAutoDJ(restore: true)
+
         switch status {
         case .playing:
             wasPlayingBeforeInterruption = false
@@ -407,6 +528,8 @@ final class AudioPlayer: ObservableObject {
     }
 
     func next() {
+        cancelAutoDJ(restore: true)
+
         // Кроссфейд — опция: при включённой галочке переход идёт через
         // затухание. Отдельный `advanceToNext`, чтобы `fadeOutAndNext`
         // не зациклился сам на себя.
@@ -424,6 +547,8 @@ final class AudioPlayer: ObservableObject {
     }
 
     func previous() {
+        cancelAutoDJ(restore: true)
+
         if currentTime > 3 {
             seek(to: 0)
             return
@@ -437,6 +562,8 @@ final class AudioPlayer: ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        cancelAutoDJ(restore: true)
+
         let total = max(duration, queue.currentTrack?.duration ?? 0)
         let clamped = min(max(seconds, 0), max(total, 0))
         let target = CMTime(seconds: clamped, preferredTimescale: 600)
@@ -469,6 +596,11 @@ final class AudioPlayer: ObservableObject {
         loadTask = nil
         fadeTask?.cancel()
         fadeTask = nil
+        djTask?.cancel()
+        djTask = nil
+        effectiveRate = 1
+        isDJTransitionActive = false
+        pendingDJIntro = false
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
         sleepTimerEndsAt = nil
@@ -597,6 +729,16 @@ final class AudioPlayer: ObservableObject {
 
             startBeatHaptics(for: stream.url)
 
+            if pendingDJIntro {
+                pendingDJIntro = false
+                isDJTransitionActive = true
+                startDJIntro()
+            } else {
+                player.volume = volume
+                player.rate = 1
+                effectiveRate = 1
+            }
+
             if let seekTarget = pendingSeek {
                 pendingSeek = nil
                 // Явный `completionHandler` берёт синхронную перегрузку:
@@ -637,6 +779,10 @@ final class AudioPlayer: ObservableObject {
         if let track = queue.currentTrack {
             ListeningStatsStore.shared.recordFinish(track)
         }
+
+        let wasTransitioning = isDJTransitionActive
+        cancelAutoDJ(restore: false)
+        pendingDJIntro = wasTransitioning && autoDJEnabled
 
         if queue.repeatMode == .one {
             seek(to: 0)
@@ -722,6 +868,8 @@ final class AudioPlayer: ObservableObject {
            itemDuration.seconds > 0 {
             duration = itemDuration.seconds
         }
+
+        updateAutoDJ()
 
         tickCount += 1
         // Тик идёт раз в 0.5 с. Прогресс на локскрине система экстраполирует
@@ -894,6 +1042,7 @@ final class AudioPlayer: ObservableObject {
         case .began:
             wasPlayingBeforeInterruption = isPlaying
             if isPlaying {
+                cancelAutoDJ(restore: true)
                 player.pause()
                 status = .paused
                 beatHaptics?.pause()
@@ -935,6 +1084,7 @@ final class AudioPlayer: ObservableObject {
         // Выдернули наушники — пауза без автовозобновления.
         guard isPlaying else { return }
         wasPlayingBeforeInterruption = false
+        cancelAutoDJ(restore: true)
         player.pause()
         status = .paused
         beatHaptics?.pause()

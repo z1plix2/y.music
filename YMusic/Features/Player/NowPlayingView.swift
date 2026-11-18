@@ -160,6 +160,17 @@ struct NowPlayingView: View {
                     } else {
                         NowPlayingProgress(fallbackDuration: track?.duration ?? 0)
                     }
+                    if abs(player.effectiveRate - 1) > 0.01 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 9, weight: .bold))
+                            Text(String(format: "×%.2f", player.effectiveRate))
+                                .font(.caption2.monospacedDigit().weight(.semibold))
+                        }
+                        .foregroundStyle(tone.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityLabel("Auto-DJ переход")
+                    }
                     controls
                     actions
                     statusCard

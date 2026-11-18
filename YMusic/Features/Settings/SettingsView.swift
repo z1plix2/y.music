@@ -25,6 +25,7 @@ struct SettingsView: View {
     @AppStorage("beatHapticsWarningShown") private var beatHapticsWarningShown = false
     @AppStorage("useWaveformScrubber") private var useWaveformScrubber = true
     @AppStorage("useRealSpectrum") private var useRealSpectrum = true
+    @AppStorage("autoDJEnabled") private var autoDJEnabled = true
     @State private var showBeatHapticsAlert = false
 
     var body: some View {
@@ -99,6 +100,9 @@ struct SettingsView: View {
         }
         .onChange(of: beatHapticsEnabled) { _ in
             player.updateBeatHapticsPreference()
+        }
+        .onChange(of: autoDJEnabled) { _ in
+            player.refreshAutoDJPreference()
         }
     }
 
@@ -280,6 +284,14 @@ struct SettingsView: View {
                         "Спектр-визуализатор",
                         subtitle: "Реальный FFT вместо частиц",
                         isOn: $useRealSpectrum
+                    )
+
+                    Divider().overlay(tone.border.opacity(0.12))
+
+                    toggleRow(
+                        "Auto-DJ: плавный переход",
+                        subtitle: "Затухание и разгон на стыке треков",
+                        isOn: $autoDJEnabled
                     )
                 }
             }
