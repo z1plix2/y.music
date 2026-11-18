@@ -55,7 +55,7 @@ targets:
         YandexClientID: ""
         YandexRedirectURI: "ymusic://oauth"
         YandexScopes:
-          - music:content
+          - music:api-public
         CFBundleURLTypes:
           - CFBundleURLName: com.example.ymusic.oauth
             CFBundleURLSchemes:

@@ -36,7 +36,7 @@ struct AuthConfig {
             clientSecret: value("YandexClientSecret"),
             redirectURI: value("YandexRedirectURI"),
             scopes: (bundle.object(forInfoDictionaryKey: "YandexScopes") as? [String])
-                ?? ["music:content"]
+                ?? ["music:api-public"]
         )
     }
 

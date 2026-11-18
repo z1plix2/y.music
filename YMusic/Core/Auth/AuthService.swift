@@ -6,8 +6,8 @@ import UIKit
 /// Вход через Яндекс и хранение сессии.
 ///
 /// Поток: `ASWebAuthenticationSession` → системный Safari → редирект на
-/// `ymusic://oauth#access_token=...` → токен в Keychain → проверка
-/// `/account/about` → `state = .signedIn`.
+/// `ymusic://oauth?code=...` → обмен кода на токен (`/token`) → токен в
+/// Keychain → проверка `/account/about` → `state = .signedIn`.
 @MainActor
 final class AuthService: NSObject, ObservableObject {
 
@@ -142,12 +142,20 @@ final class AuthService: NSObject, ObservableObject {
 
     private func makeAuthorizeURL() -> URL? {
         var components = URLComponents(url: config.authorizeURL, resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "response_type", value: "token"),
+        var items = [
+            // `code` + последующий обмен на токен через `/token`
+            // (`exchange(code:)`). Implicit-поток (`response_type=token`)
+            // Яндекс для новых приложений не отдаёт.
+            URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "client_id", value: config.clientID),
-            URLQueryItem(name: "redirect_uri", value: config.redirectURI),
-            URLQueryItem(name: "scope", value: config.scopes.joined(separator: " "))
+            URLQueryItem(name: "redirect_uri", value: config.redirectURI)
         ]
+        // Если права не заданы, Яндекс выдаёт токен с правами, указанными
+        // при регистрации приложения. Пустой `scope` отправлять нельзя.
+        if !config.scopes.isEmpty {
+            items.append(URLQueryItem(name: "scope", value: config.scopes.joined(separator: " ")))
+        }
+        components?.queryItems = items
         return components?.url
     }
 
