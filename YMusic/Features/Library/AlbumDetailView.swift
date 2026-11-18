@@ -26,7 +26,7 @@ struct AlbumDetailView: View {
                 topBar
 
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 24) {
                         content
                     }
                     .padding(.horizontal, 20)
@@ -42,30 +42,20 @@ struct AlbumDetailView: View {
             ArtistDetailView(artistID: artist.id)
                 .environmentObject(player)
                 .environmentObject(likes)
-                .preferredColorScheme(.dark)
         }
     }
 
     // MARK: - Панель
 
     private var topBar: some View {
-        HStack {
-            GlassIconButton("chevron.down", label: "Закрыть") {
-                dismiss()
-            }
-
-            Spacer()
-
-            Text("Альбом")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(tone.tertiary)
-
-            Spacer()
-
-            Color.clear.frame(width: 40, height: 40)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        GlassScreenHeader(
+            title: "Альбом",
+            subtitle: viewModel.album?.title,
+            onClose: { dismiss() }
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Контент
@@ -300,18 +290,11 @@ struct AlbumDetailView: View {
     }
 
     private var emptyCard: some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("В альбоме нет треков")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tone.primary)
-
-                Text("Сервер не вернул ни одного доступного трека.")
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        EmptyStateCard(
+            systemImage: "square.stack",
+            title: "В альбоме нет треков",
+            message: "Сервер не вернул ни одного доступного трека."
+        )
     }
 }
 

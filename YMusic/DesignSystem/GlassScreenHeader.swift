@@ -23,6 +23,7 @@ struct GlassScreenHeader: View {
                     Text(subtitle)
                         .font(.footnote)
                         .foregroundStyle(tone.tertiary)
+                        .lineLimit(1)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -30,7 +31,7 @@ struct GlassScreenHeader: View {
             Spacer(minLength: 8)
 
             if let onClose {
-                GlassIconButton("xmark", label: "Закрыть", action: onClose)
+                GlassIconButton("xmark.circle.fill", label: "Закрыть", action: onClose)
             }
         }
         .accessibilityElement(children: .contain)

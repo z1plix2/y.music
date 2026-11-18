@@ -14,7 +14,7 @@ struct StatsView: View {
             LiquidBackdrop()
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 24) {
                     header
 
                     hoursCard
@@ -31,28 +31,17 @@ struct StatsView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 20)
                 .padding(.top, 14)
                 .padding(.bottom, 40)
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Блоки
 
     private var header: some View {
-        HStack {
-            Text("Статистика")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(tone.primary)
-
-            Spacer(minLength: 0)
-
-            GlassIconButton("xmark", label: "Закрыть") {
-                dismiss()
-            }
-        }
+        GlassScreenHeader(title: "Статистика", onClose: { dismiss() })
     }
 
     private var hoursCard: some View {
