@@ -169,6 +169,20 @@ private struct MainScrollContent: View {
             VStack(alignment: .leading, spacing: 26) {
                 header
 
+                if catalog.isRefreshing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .tint(tone.secondary)
+
+                        Text("Обновляем…")
+                            .font(.caption)
+                            .foregroundStyle(tone.secondary)
+
+                        Spacer(minLength: 0)
+                    }
+                    .transition(.opacity)
+                }
+
                 if showsContinueCard {
                     continueCard
                         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -189,15 +203,24 @@ private struct MainScrollContent: View {
                 footer
             }
             .animation(.easeInOut(duration: 0.25), value: showsContinueCard)
+            .animation(.easeInOut(duration: 0.2), value: catalog.isRefreshing)
             .padding(.horizontal, 20)
             .padding(.top, 14)
             .padding(.bottom, 140)
         }
-        .refreshable { await catalog.refresh() }
+        .refreshable { await refreshAll() }
         .task {
             await catalog.loadIfNeeded()
             await wave.loadIfNeeded()
         }
+    }
+
+    /// Каталог и «Моя волна» обновляются параллельно: последовательный
+    /// вариант держал бы индикатор в два раза дольше.
+    private func refreshAll() async {
+        async let feed: Void = catalog.refresh()
+        async let waveRefresh: Void = wave.retry()
+        _ = await (feed, waveRefresh)
     }
 
     // MARK: Шапка
@@ -235,7 +258,7 @@ private struct MainScrollContent: View {
                     .frame(width: 40, height: 40)
             } else {
                 GlassIconButton("arrow.clockwise", label: "Обновить") {
-                    Task { await catalog.refresh() }
+                    Task { await refreshAll() }
                 }
             }
 

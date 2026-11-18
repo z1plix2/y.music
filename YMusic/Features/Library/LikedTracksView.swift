@@ -145,18 +145,13 @@ struct LikedTracksView: View {
     }
 
     private var emptyCard: some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Пока ничего не лайкнуто")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tone.primary)
-
-                Text("Сердечко на строке трека добавит его сюда.")
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        EmptyStateCard(
+            systemImage: "heart",
+            title: "Пока ничего не лайкнуто",
+            message: "Сердечко на строке трека добавит его сюда, а треки из «Мне нравится» попадут в очередь.",
+            actionTitle: "Обновить",
+            action: { Task { await viewModel.retry() } }
+        )
     }
 }
 

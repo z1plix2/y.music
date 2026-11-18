@@ -19,6 +19,15 @@ struct SearchResult: Decodable, Equatable, Sendable {
         case tracks, artists, albums, playlists
     }
 
+    /// Ручной init нужен для слияния страниц поиска: декодированный результат
+    /// нельзя «дополнить» без конструкции.
+    init(tracks: [Track], artists: [Artist], albums: [Album], playlists: [Playlist]) {
+        self.tracks = tracks
+        self.artists = artists
+        self.albums = albums
+        self.playlists = playlists
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         tracks = Self.decode(from: container, forKey: .tracks)

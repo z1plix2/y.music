@@ -30,7 +30,10 @@ struct RootView: View {
         ZStack {
             switch auth.state {
             case .restoring:
+                // Без transition снятие Splash было мгновенным: на 0.35 с
+                // показывался голый фон, и переход выглядел миганием.
                 SplashView()
+                    .transition(.opacity)
 
             case .signedOut:
                 LoginView()

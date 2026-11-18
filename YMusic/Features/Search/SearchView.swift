@@ -256,6 +256,10 @@ struct SearchView: View {
                         }
                     }
                 }
+
+                if viewModel.hasMoreTracks {
+                    loadMoreControl
+                }
             }
         }
 
@@ -351,19 +355,44 @@ struct SearchView: View {
         }
     }
 
-    private var emptyCard: some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Ничего не найдено")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tone.primary)
+    @ViewBuilder
+    private var loadMoreControl: some View {
+        if viewModel.isLoadingMore {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .tint(tone.secondary)
 
-                Text("Попробуйте другой запрос: название, исполнителя или альбом.")
-                    .font(.footnote)
+                Text("Загружаем ещё…")
+                    .font(.caption)
                     .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .frame(height: 46)
+            .padding(.horizontal, 4)
+        } else {
+            GlassButton(
+                "Показать ещё",
+                systemImage: "arrow.down.circle",
+                fullWidth: true
+            ) {
+                viewModel.loadMore()
             }
         }
+    }
+
+    private var emptyCard: some View {
+        EmptyStateCard(
+            systemImage: "magnifyingglass",
+            title: "Ничего не найдено",
+            message: "Попробуйте другой запрос: название, исполнителя или альбом.",
+            actionTitle: "Очистить",
+            actionSystemImage: "xmark",
+            action: {
+                viewModel.clearQuery()
+                isFieldFocused = true
+            }
+        )
     }
 }
 

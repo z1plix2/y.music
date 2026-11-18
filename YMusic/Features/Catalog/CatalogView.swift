@@ -164,18 +164,13 @@ struct CatalogView: View {
     }
 
     private var emptyCard: some View {
-        GlassCard(cornerRadius: 24, padding: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Здесь пока пусто")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tone.primary)
-
-                Text("Плейлисты и лайки появятся, как только в аккаунте что-то будет.")
-                    .font(.footnote)
-                    .foregroundStyle(tone.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        EmptyStateCard(
+            systemImage: "music.note.list",
+            title: "Здесь пока пусто",
+            message: "Плейлисты и лайки появятся, как только в аккаунте что-то будет. Если они точно есть — потяните экран вниз.",
+            actionTitle: "Обновить",
+            action: { Task { await viewModel.retry() } }
+        )
     }
 
     private func bar(width: CGFloat, height: CGFloat) -> some View {
