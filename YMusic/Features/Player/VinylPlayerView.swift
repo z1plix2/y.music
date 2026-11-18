@@ -22,6 +22,8 @@ struct VinylPlayerView: View {
     @EnvironmentObject private var likes: LikeStore
     @Environment(\.contentTone) private var tone
     @Environment(\.scenePhase) private var scenePhase
+    /// На слабом профиле диск крутится 15 Гц вместо 20.
+    @ObservedObject private var device = DeviceProfile.shared
 
     @State private var rotation: Double = 0
     @State private var needleDown = false
@@ -32,8 +34,15 @@ struct VinylPlayerView: View {
     @State private var dialConnection: AnyCancellable?
     @State private var isVisible = false
 
-    /// 20 Гц вместо 30: вращение диска плавное, CPU-пробуждений меньше.
-    private let dial = Timer.publish(every: 1.0 / 20.0, on: .main, in: .common).autoconnect()
+    /// 20 Гц на сильном железе, 15 — на слабом: вращение всё ещё плавное,
+/// но пробуждений меньше. Один оборот — 4 секунды.
+    private var dial: Timer.TimerPublisher {
+        Timer.publish(every: 1.0 / device.vinylFrameRate, on: .main, in: .common)
+    }
+
+    private var degreesPerTick: Double {
+        360.0 / (4.0 * device.vinylFrameRate)
+    }
 
     private var track: Track? { player.currentTrack }
 
@@ -87,6 +96,9 @@ struct VinylPlayerView: View {
         .onChange(of: scenePhase) { _ in
             updateDial()
         }
+        .onChange(of: device.allowsAnimatedVisuals) { _ in
+            updateDial()
+        }
         .sheet(item: $sharePayload) { item in
             ActivityView(items: item.items)
         }
@@ -101,7 +113,10 @@ struct VinylPlayerView: View {
     /// Таймер живёт только когда view видим, приложение активно и трек играет.
     /// В фоне и под открытым sheet он отключён совсем, а не «тикает вхолостую».
     private func updateDial() {
-        let shouldRun = isVisible && scenePhase == .active && player.isPlaying
+        let shouldRun = isVisible
+            && scenePhase == .active
+            && player.isPlaying
+            && device.allowsAnimatedVisuals
 
         guard shouldRun else {
             dialConnection?.cancel()
@@ -110,8 +125,8 @@ struct VinylPlayerView: View {
         }
 
         guard dialConnection == nil else { return }
-        dialConnection = dial.sink { _ in
-            rotation += 4.5
+        dialConnection = dial.autoconnect().sink { _ in
+            rotation += degreesPerTick
             if rotation >= 360 { rotation -= 360 }
         }
     }

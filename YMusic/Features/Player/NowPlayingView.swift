@@ -25,6 +25,8 @@ struct NowPlayingView: View {
     @State private var artworkPalette: ColorPalette = .brand
     @AppStorage("playerMode") private var playerModeRaw = PlayerMode.standard.rawValue
     @AppStorage("useWaveformScrubber") private var useWaveformScrubber = true
+    /// Нагрев и слабое железо: плашка и статичные эффекты.
+    @ObservedObject private var device = DeviceProfile.shared
 
     private var mode: PlayerMode {
         PlayerMode(rawValue: playerModeRaw) ?? .standard
@@ -80,6 +82,9 @@ struct NowPlayingView: View {
         .sheet(item: $sharePayload) { item in
             ActivityView(items: item.items)
         }
+        .overlay(alignment: .top) {
+            heatNotice
+        }
         .sheet(isPresented: $isQueuePresented) {
             QueueView()
                 .environmentObject(player)
@@ -108,6 +113,61 @@ struct NowPlayingView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(videoRenderer.failure ?? "Попробуйте ещё раз.")
+        }
+    }
+
+    /// Плашка о нагреве: эффекты уже отключены, но пользователь должен
+/// понимать, почему картинка стала статичной. На `.critical` — просьба
+/// дать телефону остыть, воспроизведение уже стоит.
+    @ViewBuilder
+    private var heatNotice: some View {
+        if device.shouldFreezeVisuals && !device.isHeatNoticeDismissed {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: device.shouldPauseForHeat ? "exclamationmark.triangle.fill" : "thermometer.high")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(device.shouldPauseForHeat ? "Телефон перегрелся" : "Телефон нагрелся")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text(
+                        device.shouldPauseForHeat
+                            ? "Воспроизведение остановлено. Дайте ему остыть."
+                            : "Часть эффектов отключена до остывания."
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    device.isHeatNoticeDismissed = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 26, height: 26)
+                        .background { Circle().fill(Color.white.opacity(0.10)) }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Понятно")
+            }
+            .padding(12)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.black.opacity(0.55))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 56)
+            .transition(.opacity)
         }
     }
 

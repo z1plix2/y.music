@@ -14,6 +14,8 @@ struct DynamicBackground<Content: View>: View {
     @State private var palette: ColorPalette
     @State private var isDrifting = false
     @Environment(\.scenePhase) private var scenePhase
+    /// Тяжёлый фон (пятна + дрейф) живёт только на сильном железе.
+    @ObservedObject private var device = DeviceProfile.shared
 
     init(
         imageURL: URL?,
@@ -46,19 +48,54 @@ struct DynamicBackground<Content: View>: View {
         .onAppear { updateDrift() }
         .onDisappear { isDrifting = false }
         .onChange(of: scenePhase) { _ in updateDrift() }
+        .onChange(of: device.usesLightBackground) { _ in updateDrift() }
     }
 
     /// Дрейф пятен — бесконечная анимация. В фоне и когда экран ушёл
     /// с глаз, она не нужна: останавливаем, чтобы не жечь GPU вхолостую.
     private func updateDrift() {
-        let shouldDrift = scenePhase == .active
+        // На слабом профиле и при нагреве фон статичный: дрейф — это
+        // бесконечная анимация двух больших blur-слоёв.
+        let shouldDrift = scenePhase == .active && !device.usesLightBackground
         guard isDrifting != shouldDrift else { return }
         isDrifting = shouldDrift
     }
 
     // MARK: - Слои
 
+    @ViewBuilder
     private var backgroundLayers: some View {
+        if device.usesLightBackground {
+            lightBackground
+        } else {
+            fullBackground
+        }
+    }
+
+    /// Экономный вариант: один градиент вместо двух размытых кругов.
+    private var lightBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.05, green: 0.05, blue: 0.07),
+                    palette.primary.color.opacity(0.30),
+                    palette.secondary.color.opacity(0.22),
+                    Color(red: 0.06, green: 0.05, blue: 0.09)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            LinearGradient(
+                colors: [Color.black.opacity(0.20), Color.black.opacity(0.65)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var fullBackground: some View {
         ZStack {
             LinearGradient(
                 colors: [

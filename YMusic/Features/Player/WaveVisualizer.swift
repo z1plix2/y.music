@@ -31,6 +31,8 @@ struct WaveVisualizer: View {
 
     @Environment(\.contentTone) private var tone
     @Environment(\.scenePhase) private var scenePhase
+    /// На слабом железе — 12 кадров и 32 полосы.
+    @ObservedObject private var device = DeviceProfile.shared
     @State private var loadedPalette: ColorPalette?
     @State private var bursts: [ParticleBurst] = []
     /// Плеер закрыт, но view ещё в памяти — кадры не нужны.
@@ -42,7 +44,7 @@ struct WaveVisualizer: View {
 
     /// На паузе и в фоне кадров нет совсем: `TimelineView` перестаёт тикать.
     private var isPaused: Bool {
-        !isPlaying || scenePhase != .active || !isVisible
+        !isPlaying || scenePhase != .active || !isVisible || !device.allowsAnimatedVisuals
     }
 
     var body: some View {
@@ -51,8 +53,15 @@ struct WaveVisualizer: View {
                 Canvas { context, size in
                     drawParticles(in: context, size: size, time: fixedTime)
                 }
+            } else if !device.allowsAnimatedVisuals {
+                // Эконом или перегрев: один статичный кадр, без таймера.
+                Canvas { context, size in
+                    drawStaticFrame(in: context, size: size)
+                }
             } else if let spectrum, !spectrum.isEmpty {
-                TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: isPaused)) { timeline in
+                TimelineView(
+                    .animation(minimumInterval: 1.0 / device.visualizerFrameRate, paused: isPaused)
+                ) { timeline in
                     Canvas { context, size in
                         drawSpectrum(
                             spectrum,
@@ -63,9 +72,10 @@ struct WaveVisualizer: View {
                     }
                 }
             } else {
-                // 24 FPS: для медленных частиц разницы не видно, а кадров
-                // на 20% меньше, чем на 30.
-                TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: isPaused)) { timeline in
+                // FPS берётся из профиля: 24 на сильном железе, 12 на слабом.
+                TimelineView(
+                    .animation(minimumInterval: 1.0 / device.visualizerFrameRate, paused: isPaused)
+                ) { timeline in
                     let time = timeline.date.timeIntervalSinceReferenceDate
 
                     Canvas { context, size in
@@ -127,7 +137,10 @@ struct WaveVisualizer: View {
     ) {
         guard size.width > 0, size.height > 0 else { return }
 
-        let values = spectrum.values(at: max(time, 0))
+        let values = Self.downsample(
+            spectrum.values(at: max(time, 0)),
+            to: device.spectrumBarCount
+        )
         guard !values.isEmpty else { return }
 
         let count = values.count
@@ -158,6 +171,36 @@ struct WaveVisualizer: View {
     }
 
     // MARK: - Частицы
+
+    /// Статичный кадр для эконом-режима: спектр на текущей позиции или
+    /// застывшие частицы.
+    private func drawStaticFrame(in context: GraphicsContext, size: CGSize) {
+        if let spectrum, !spectrum.isEmpty {
+            drawSpectrum(spectrum, in: context, size: size, time: max(currentTime, 0))
+        } else {
+            drawParticles(in: context, size: size, time: 0)
+        }
+    }
+
+    /// Схлопывает 64 полосы в 32 по пику: на слабом железе вдвое меньше фигур.
+    private static func downsample(_ values: [Float], to target: Int) -> [Float] {
+        guard target > 0, values.count > target else { return values }
+        let groupSize = max(values.count / target, 1)
+        var result = [Float](repeating: 0, count: target)
+
+        for index in 0..<target {
+            let lower = index * groupSize
+            let upper = min(lower + groupSize, values.count)
+            var peak: Float = 0
+            if lower < upper {
+                for bin in lower..<upper {
+                    peak = max(peak, values[bin])
+                }
+            }
+            result[index] = peak
+        }
+        return result
+    }
 
     private func drawParticles(in context: GraphicsContext, size: CGSize, time: Double) {
         guard size.width > 0, size.height > 0 else { return }

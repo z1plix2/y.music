@@ -27,6 +27,8 @@ struct SettingsView: View {
     @AppStorage("useRealSpectrum") private var useRealSpectrum = true
     @AppStorage("autoDJEnabled") private var autoDJEnabled = true
     @State private var showBeatHapticsAlert = false
+    /// Текущий класс устройства и нагрев.
+    @ObservedObject private var device = DeviceProfile.shared
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -36,6 +38,7 @@ struct SettingsView: View {
                 accountSection
                 appearanceSection
                 playbackSection
+                performanceSection
                 waveSection
                 notificationsSection
                 aboutSection
@@ -293,6 +296,50 @@ struct SettingsView: View {
                         subtitle: "Затухание и разгон на стыке треков",
                         isOn: $autoDJEnabled
                     )
+                }
+            }
+        }
+    }
+
+    // MARK: - Производительность
+
+    /// Авто — по железу и условиям, Максимум — всё включено,
+    /// Эконом — только воспроизведение.
+    private var performanceSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GlassSectionHeader("Производительность")
+
+            GlassCard(cornerRadius: 22, padding: 16) {
+                VStack(alignment: .leading, spacing: 14) {
+                    rowTitle(
+                        "Режим производительности",
+                        subtitle: device.statusText
+                    )
+
+                    Picker("Режим производительности", selection: $device.performanceMode) {
+                        ForEach(PerformanceMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Эконом отключает пятна на фоне, спектр, винил, вибрацию и Auto-DJ. Максимум включает всё даже на старом железе — телефон может греться сильнее.")
+                        .font(.caption2)
+                        .foregroundStyle(tone.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if device.shouldFreezeVisuals {
+                        Divider().overlay(tone.border.opacity(0.12))
+
+                        Text(
+                            device.shouldPauseForHeat
+                                ? "Телефон перегрелся: воспроизведение остановлено до остывания."
+                                : "Телефон нагрелся: эффекты отключены до остывания."
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
