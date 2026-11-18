@@ -323,10 +323,14 @@ final class AudioPlayer: ObservableObject {
 
             if let seekTarget = pendingSeek {
                 pendingSeek = nil
+                // Явный `completionHandler` берёт синхронную перегрузку:
+                // в async-контексте Swift иначе выбирает async-вариант
+                // (`seek(...) async -> Bool`) и требует `await`.
                 player.seek(
                     to: CMTime(seconds: seekTarget, preferredTimescale: 600),
                     toleranceBefore: .zero,
-                    toleranceAfter: .zero
+                    toleranceAfter: .zero,
+                    completionHandler: { _ in }
                 )
                 currentTime = seekTarget
             }
