@@ -51,6 +51,10 @@ struct RootView: View {
     /// пересоздание экрана и не терять сессию между открытиями плеера.
     @StateObject private var waveSession = WaveSessionController()
 
+    /// Профиль производительности: следим за нагревом на уровне корня,
+    /// чтобы остановить звук даже если плеер закрыт.
+    @ObservedObject private var device = DeviceProfile.shared
+
     @Environment(\.scenePhase) private var scenePhase
 
     /// Трек из deep link, пришедший до восстановления сессии.
@@ -93,6 +97,14 @@ struct RootView: View {
         .onChange(of: player.isConfigured) { ready in
             guard ready else { return }
             resolvePendingDeepLink()
+        }
+        .onChange(of: device.shouldPauseForHeat) { shouldPause in
+            // `.critical`: дальше греть нельзя, останавливаем звук и эффекты.
+            guard shouldPause else { return }
+            player.pauseForHeat()
+        }
+        .onChange(of: device.usesLightBackground) { _ in
+            player.refreshPerformanceProfile()
         }
         .onChange(of: scenePhase) { phase in
             player.handleScenePhase(phase)

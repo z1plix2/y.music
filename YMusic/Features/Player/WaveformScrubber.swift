@@ -11,6 +11,8 @@ struct WaveformScrubber: View {
 
     @EnvironmentObject private var player: AudioPlayer
     @Environment(\.contentTone) private var tone
+    /// На слабом профиле рисуем 100 столбиков вместо 200.
+    @ObservedObject private var device = DeviceProfile.shared
 
     @State private var scrubFraction: Double?
     @State private var lastHapticStep = -1
@@ -72,7 +74,7 @@ struct WaveformScrubber: View {
 
     private func bars(width: CGFloat, color: Color) -> some View {
         Canvas { context, size in
-            let values = player.waveform
+            let values = Self.limit(player.waveform, to: device.waveformBinCount)
             let count = values.isEmpty ? 60 : values.count
             let slot = size.width / CGFloat(max(count, 1))
             let gap = max(slot * 0.32, 0.6)
@@ -97,6 +99,26 @@ struct WaveformScrubber: View {
         .frame(width: width)
         .drawingGroup()
         .allowsHitTesting(false)
+    }
+
+    /// Прореживает волну по пику: 200 бинов → 100 на слабом профиле.
+    private static func limit(_ values: [Float], to target: Int) -> [Float] {
+        guard target > 0, values.count > target else { return values }
+        let groupSize = max(values.count / target, 1)
+        var result = [Float](repeating: 0, count: target)
+
+        for index in 0..<target {
+            let lower = index * groupSize
+            let upper = min(lower + groupSize, values.count)
+            var peak: Float = 0
+            if lower < upper {
+                for bin in lower..<upper {
+                    peak = max(peak, values[bin])
+                }
+            }
+            result[index] = peak
+        }
+        return result
     }
 
     // MARK: - Жест

@@ -107,6 +107,10 @@ final class AudioPlayer: ObservableObject {
         self.streamProvider = streamProvider
         self.stateStore = stateStore
 
+        // Инициализируем профиль раньше первого чтения фич-дефолтов,
+        // иначе на iPhone 11 вибрация/спектр включатся «по общему» дефолту.
+        _ = DeviceProfile.shared
+
         player.automaticallyWaitsToMinimizeStalling = true
         player.volume = volume
 
@@ -157,6 +161,27 @@ final class AudioPlayer: ObservableObject {
     func refreshAutoDJPreference() {
         guard !autoDJEnabled else { return }
         cancelAutoDJ(restore: true)
+    }
+
+    /// Профиль сменился на ходу (Low Power Mode, нагрев, ручной режим):
+    /// гасим вибрацию и сбрасываем спектр, если они больше не положены.
+    func refreshPerformanceProfile() {
+        if DeviceProfile.shared.allowsAnimatedVisuals {
+            if UserDefaults.standard.bool(forKey: "beatHapticsEnabled"),
+               beatHaptics != nil {
+                beatHaptics?.resume()
+            }
+        } else {
+            beatHaptics?.pause()
+        }
+
+        if !DeviceProfile.shared.allowsSpectrumAnalysis {
+            spectrum = nil
+        }
+
+        if !autoDJEnabled {
+            cancelAutoDJ(restore: true)
+        }
     }
 
     /// Единая точка реакции на жизненный цикл: в фоне не должно тикать
@@ -344,7 +369,9 @@ final class AudioPlayer: ObservableObject {
     /// ускоряемся на 8 % и уводим громкость в ноль, следующий трек
     /// входит с 0.92 и за 2 секунды разгоняется до 1.0.
     private var autoDJEnabled: Bool {
-        UserDefaults.standard.object(forKey: "autoDJEnabled") as? Bool ?? true
+        // Эконом не тянет лишние таймеры и смену rate.
+        guard !DeviceProfile.shared.isEco else { return false }
+        return UserDefaults.standard.object(forKey: "autoDJEnabled") as? Bool ?? true
     }
 
     private func updateAutoDJ() {
@@ -524,6 +551,21 @@ final class AudioPlayer: ObservableObject {
             break
         }
 
+        updateWidgetSnapshot()
+    }
+
+    /// Нагрев `.critical`: тихо останавливаем звук и тяжёлые эффекты.
+    /// Пользователь сам решит, когда продолжить; тумблеры не трогаем.
+    func pauseForHeat() {
+        guard status == .playing || status == .preparing else { return }
+
+        cancelAutoDJ(restore: true)
+        player.pause()
+        status = .paused
+        beatHaptics?.pause()
+        waveformTask?.cancel()
+        persist()
+        syncNowPlaying()
         updateWidgetSnapshot()
     }
 
@@ -1101,7 +1143,9 @@ private func startBeatHaptics(for url: URL) {
         stopBeatHaptics()
 
         guard UserDefaults.standard.bool(forKey: "beatHapticsEnabled"),
-              BeatHapticsSupport.isSupported
+              BeatHapticsSupport.isSupported,
+              // Эконом и перегрев: моторчик тоже греет.
+              DeviceProfile.shared.allowsAnimatedVisuals
         else {
             return
         }
@@ -1129,7 +1173,8 @@ private func startBeatHaptics(for url: URL) {
         waveform = []
         spectrum = nil
 
-        let needsSpectrum = UserDefaults.standard.object(forKey: "useRealSpectrum") as? Bool ?? true
+        let needsSpectrum = (UserDefaults.standard.object(forKey: "useRealSpectrum") as? Bool ?? true)
+            && DeviceProfile.shared.allowsSpectrumAnalysis
 
         waveformTask = Task { [weak self] in
             do {
