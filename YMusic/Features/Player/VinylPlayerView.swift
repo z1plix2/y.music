@@ -247,7 +247,7 @@ struct VinylPlayerView: View {
         Circle()
             .fill(palette.primary.color)
             .blur(radius: 46)
-            .opacity(player.isPlaying ? 0.3 : 0.16)
+            .opacity(player.isPlaying ? 0.20 : 0.10)
             .padding(6)
             .drawingGroup()
             .allowsHitTesting(false)

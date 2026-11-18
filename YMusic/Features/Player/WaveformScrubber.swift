@@ -30,7 +30,7 @@ struct WaveformScrubber: View {
 
             ZStack(alignment: .leading) {
                 bars(width: width, color: accent.opacity(0.22))
-                bars(width: width, color: accent)
+                bars(width: width, color: accent.opacity(0.85))
                     .mask(alignment: .leading) {
                         Rectangle().frame(width: width * fraction)
                     }

@@ -100,7 +100,7 @@ struct LoginView: View {
             }
         }
         .padding(22)
-        .glassPanel(cornerRadius: 32)
+        .glassPanel(cornerRadius: 32, material: .regularMaterial)
     }
 
     private var signInButton: some View {

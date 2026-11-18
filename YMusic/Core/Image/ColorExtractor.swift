@@ -289,8 +289,8 @@ actor ColorExtractor {
     /// и прижимаем яркость, чтобы фон работал под белый текст.
     private static func deepTone(_ color: RGBColor) -> RGBColor {
         let hsb = color.hsb
-        let saturation = min(1.0, max(0.42, hsb.saturation * 1.6))
-        let brightness = min(0.52, max(0.24, hsb.brightness * 0.85 + 0.06))
+        let saturation = min(1.0, max(0.42, hsb.saturation * 1.3))
+        let brightness = min(0.42, max(0.20, hsb.brightness * 0.85 + 0.06))
         return RGBColor(hue: hsb.hue, saturation: saturation, brightness: brightness)
     }
 

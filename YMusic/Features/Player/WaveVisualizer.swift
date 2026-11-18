@@ -58,6 +58,7 @@ struct WaveVisualizer: View {
                 }
             }
         }
+        .saturation(0.8)
         .frame(height: height)
         .accessibilityHidden(true)
         .onAppear { isVisible = true }
