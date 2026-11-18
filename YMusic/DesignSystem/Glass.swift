@@ -31,16 +31,21 @@ extension EnvironmentValues {
 /// Без неё `.ultraThinMaterial` на светлой обложке даёт нечитаемый текст.
 struct GlassBackgroundOverlay: View {
     @Environment(\.contentTone) private var tone
+    @Environment(\.appTheme) private var theme
 
     var body: some View {
-        LinearGradient(
-            colors: tone == .light
-                ? [Color.black.opacity(0.14), Color.black.opacity(0.34)]
-                : [Color.white.opacity(0.55), Color.white.opacity(0.32)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .allowsHitTesting(false)
+        if theme.cardStyle == .glass {
+            LinearGradient(
+                colors: tone == .light
+                    ? [Color.black.opacity(0.14), Color.black.opacity(0.34)]
+                    : [Color.white.opacity(0.55), Color.white.opacity(0.32)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        } else {
+            theme.palette.surfaceBase
+        }
     }
 }
 
@@ -50,30 +55,54 @@ struct GlassPanel: ViewModifier {
     var cornerRadius: CGFloat = 28
     var material: Material = .thinMaterial
 
+    @Environment(\.appTheme) private var theme
+
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let radius = cornerRadius * theme.cornerRadiusScale
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
 
         content
-            .background {
-                shape
-                    .fill(material)
-                    .overlay {
-                        GlassBackgroundOverlay()
-                            .clipShape(shape)
-                    }
-            }
+            .background { panelBackground(shape) }
             .clipShape(shape)
-            .overlay {
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.35), .white.opacity(0.04)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-            }
-            .shadow(color: .black.opacity(0.28), radius: 20, x: 0, y: 14)
+            .overlay { panelBorder(shape) }
+            .shadow(
+                color: theme.cardStyle == .glass ? .black.opacity(0.28) : .clear,
+                radius: 20,
+                x: 0,
+                y: 14
+            )
+    }
+
+    @ViewBuilder
+    private func panelBackground(_ shape: RoundedRectangle) -> some View {
+        switch theme.cardStyle {
+        case .glass:
+            shape
+                .fill(material)
+                .overlay {
+                    GlassBackgroundOverlay()
+                        .clipShape(shape)
+                }
+        case .flat, .solid:
+            shape.fill(theme.palette.surfaceBase)
+        }
+    }
+
+    @ViewBuilder
+    private func panelBorder(_ shape: RoundedRectangle) -> some View {
+        switch theme.cardStyle {
+        case .glass:
+            shape.strokeBorder(
+                LinearGradient(
+                    colors: [.white.opacity(0.35), .white.opacity(0.04)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
+        case .flat, .solid:
+            shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+        }
     }
 }
 
@@ -133,6 +162,7 @@ struct GlassButton: View {
     private let action: () -> Void
 
     @Environment(\.contentTone) private var tone
+    @Environment(\.appTheme) private var theme
 
     init(
         _ title: String,
@@ -177,28 +207,36 @@ struct GlassButton: View {
     }
 
     private var foregroundColor: Color {
-        prominence == .prominent ? .white : tone.primary
+        guard prominence == .prominent else { return tone.primary }
+        // На жёлтом акценте белый текст нечитаем — Яндекс-тема просит чёрный.
+        return theme == .yandex ? Color.black.opacity(0.86) : .white
     }
 
     @ViewBuilder
     private var backgroundView: some View {
         if prominence == .prominent {
-            Capsule().fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.82, green: 0.08, blue: 0.16),
-                        Color(red: 0.72, green: 0.04, blue: 0.12)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+            if theme.useGradientButtons {
+                Capsule().fill(
+                    LinearGradient(
+                        colors: [
+                            theme.palette.primaryAccent,
+                            theme.palette.secondaryAccent
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
                 )
-            )
-        } else {
+            } else {
+                Capsule().fill(theme.palette.primaryAccent)
+            }
+        } else if theme.cardStyle == .glass {
             Capsule()
                 .fill(.thinMaterial)
                 .overlay {
                     Capsule().fill(Color.black.opacity(0.22))
                 }
+        } else {
+            Capsule().fill(theme.palette.surfaceBase)
         }
     }
 
@@ -206,7 +244,7 @@ struct GlassButton: View {
     private var borderView: some View {
         if prominence == .prominent {
             Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
-        } else {
+        } else if theme.cardStyle == .glass {
             Capsule().strokeBorder(
                 LinearGradient(
                     colors: [.white.opacity(0.30), .white.opacity(0.04)],
@@ -215,12 +253,15 @@ struct GlassButton: View {
                 ),
                 lineWidth: 1
             )
+        } else {
+            Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
         }
     }
 
     private var shadowColor: Color {
-        prominence == .prominent
-            ? Color(red: 0.90, green: 0.15, blue: 0.20).opacity(0.25)
+        guard theme.cardStyle == .glass else { return .clear }
+        return prominence == .prominent
+            ? theme.palette.primaryAccent.opacity(0.25)
             : Color.black.opacity(0.25)
     }
 }
@@ -233,6 +274,7 @@ struct GlassIconButton: View {
     private let action: () -> Void
 
     @Environment(\.contentTone) private var tone
+    @Environment(\.appTheme) private var theme
 
     init(_ systemImage: String, label: String, action: @escaping () -> Void) {
         self.systemImage = systemImage
@@ -247,12 +289,19 @@ struct GlassIconButton: View {
                 .foregroundStyle(tone.primary)
                 .frame(width: 40, height: 40)
                 .background {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .overlay { Circle().fill(Color.black.opacity(0.14)) }
+                    if theme.cardStyle == .glass {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay { Circle().fill(Color.black.opacity(0.14)) }
+                    } else {
+                        Circle().fill(theme.palette.surfaceBase)
+                    }
                 }
                 .overlay {
-                    Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    Circle().strokeBorder(
+                        Color.white.opacity(theme.cardStyle == .glass ? 0.18 : 0.10),
+                        lineWidth: 1
+                    )
                 }
         }
         .buttonStyle(PressableStyle(scale: 0.92))
@@ -269,6 +318,7 @@ struct GlassSectionHeader: View {
     private let trailingAction: (() -> Void)?
 
     @Environment(\.contentTone) private var tone
+    @Environment(\.appTheme) private var theme
 
     init(
         _ title: String,
@@ -305,8 +355,19 @@ struct GlassSectionHeader: View {
                         .foregroundStyle(tone.secondary)
                         .padding(.horizontal, 14)
                         .frame(height: 30)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+                        .background {
+                            if theme.cardStyle == .glass {
+                                Capsule().fill(.ultraThinMaterial)
+                            } else {
+                                Capsule().fill(theme.palette.surfaceBase)
+                            }
+                        }
+                        .overlay(
+                            Capsule().strokeBorder(
+                                Color.white.opacity(theme.cardStyle == .glass ? 0.14 : 0.10),
+                                lineWidth: 1
+                            )
+                        )
                 }
                 .buttonStyle(PressableStyle(scale: 0.94))
             }
@@ -321,6 +382,7 @@ struct GlassChip: View {
     private let systemImage: String?
 
     @Environment(\.contentTone) private var tone
+    @Environment(\.appTheme) private var theme
 
     init(_ title: String, systemImage: String? = nil) {
         self.title = title
@@ -339,18 +401,42 @@ struct GlassChip: View {
         .foregroundStyle(tone.secondary)
         .padding(.horizontal, 12)
         .frame(height: 30)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+        .background {
+            if theme.cardStyle == .glass {
+                Capsule().fill(.ultraThinMaterial)
+            } else {
+                Capsule().fill(theme.palette.surfaceBase)
+            }
+        }
+        .overlay(
+            Capsule().strokeBorder(
+                Color.white.opacity(theme.cardStyle == .glass ? 0.14 : 0.10),
+                lineWidth: 1
+            )
+        )
     }
 }
+
+// MARK: - Тематические имена
+
+/// Компоненты читают `\.appTheme`; старые имена сохранены, чтобы не
+/// переписывать десятки call sites. Новый код может звать Theme*.
+typealias ThemePanel = GlassPanel
+typealias ThemeCard<Content: View> = GlassCard<Content>
+typealias ThemeButton = GlassButton
+typealias ThemeIconButton = GlassIconButton
+typealias ThemeSectionHeader = GlassSectionHeader
+typealias ThemeChip = GlassChip
 
 // MARK: - Живой фон (экран входа)
 
 /// Цветные пятна за стеклом. Используется на `LoginView`, где ещё нет
 /// обложки для `DynamicBackground`.
 struct LiquidBackdrop: View {
-    var tint: Color = Color(red: 0.92, green: 0.16, blue: 0.22)
+    /// `nil` — акцент берётся из текущей темы.
+    var tint: Color?
 
+    @Environment(\.appTheme) private var theme
     @State private var animate = false
 
     var body: some View {
@@ -360,29 +446,30 @@ struct LiquidBackdrop: View {
             .background { layers }
             .ignoresSafeArea()
             .onAppear {
+                guard theme.useDynamicBackground, !animate else { return }
                 withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
                     animate = true
                 }
             }
     }
 
+    private var accent: Color { tint ?? theme.palette.primaryAccent }
+
     private var layers: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.04, blue: 0.07),
-                    Color(red: 0.08, green: 0.06, blue: 0.14),
-                    Color(red: 0.03, green: 0.03, blue: 0.06)
-                ],
+                colors: theme.backgroundGradient,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
-            blob(tint, size: 360, x: animate ? 120 : -110, y: animate ? -220 : -60, opacity: 0.38)
-            blob(Color(red: 0.35, green: 0.25, blue: 0.95), size: 320,
-                 x: animate ? -130 : 100, y: animate ? 180 : 320, opacity: 0.32)
-            blob(Color(red: 0.10, green: 0.65, blue: 0.85), size: 260,
-                 x: animate ? 90 : 20, y: animate ? 320 : 120, opacity: 0.21)
+            if theme.useDynamicBackground {
+                blob(accent, size: 360, x: animate ? 120 : -110, y: animate ? -220 : -60, opacity: 0.38)
+                blob(theme.palette.secondaryAccent, size: 320,
+                     x: animate ? -130 : 100, y: animate ? 180 : 320, opacity: 0.32)
+                blob(Color(red: 0.10, green: 0.65, blue: 0.85), size: 260,
+                     x: animate ? 90 : 20, y: animate ? 320 : 120, opacity: 0.21)
+            }
         }
         .allowsHitTesting(false)
     }

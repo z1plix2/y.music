@@ -9,6 +9,7 @@ struct OnboardingView: View {
     let onFinish: () -> Void
 
     @State private var page = 0
+    @Environment(\.appTheme) private var theme
 
     private let pageCount = 3
 
@@ -74,19 +75,19 @@ struct OnboardingView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 0.99, green: 0.45, blue: 0.12),
-                                Color(red: 0.86, green: 0.10, blue: 0.24)
+                                theme.palette.primaryAccent,
+                                theme.palette.secondaryAccent
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 132, height: 132)
-                    .shadow(color: Color(red: 0.95, green: 0.3, blue: 0.2).opacity(0.45), radius: 34, y: 16)
+                    .shadow(color: theme.palette.primaryAccent.opacity(0.45), radius: 34, y: 16)
 
                 Image(systemName: "waveform")
                     .font(.system(size: 54, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme == .yandex ? Color.black.opacity(0.8) : .white)
             }
         } title: {
             pageTitle("Добро пожаловать\nв YMusic")

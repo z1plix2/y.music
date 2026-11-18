@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var auth: AuthService
+    @Environment(\.appTheme) private var theme
 
     @State private var isShowingLogin = false
 
@@ -49,19 +50,19 @@ struct LoginView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 0.99, green: 0.45, blue: 0.12),
-                                Color(red: 0.86, green: 0.10, blue: 0.24)
+                                theme.palette.primaryAccent,
+                                theme.palette.secondaryAccent
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 96, height: 96)
-                    .shadow(color: Color(red: 0.95, green: 0.3, blue: 0.2).opacity(0.45), radius: 30, y: 14)
+                    .shadow(color: theme.palette.primaryAccent.opacity(0.45), radius: 30, y: 14)
 
                 Image(systemName: "waveform")
                     .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme == .yandex ? Color.black.opacity(0.8) : .white)
             }
 
             VStack(spacing: 6) {
@@ -129,16 +130,15 @@ struct LoginView: View {
                     .font(.system(size: 14, weight: .bold))
                     .opacity(auth.isAuthenticating ? 0 : 0.75)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme == .yandex ? Color.black : .white)
             .padding(.horizontal, 20)
             .frame(height: 58)
             .frame(maxWidth: .infinity)
             .background(
                 LinearGradient(
-                    colors: [
-                        Color(red: 0.92, green: 0.18, blue: 0.24),
-                        Color(red: 0.82, green: 0.08, blue: 0.16)
-                    ],
+                    colors: theme.useGradientButtons
+                        ? [theme.palette.primaryAccent, theme.palette.secondaryAccent]
+                        : [theme.palette.primaryAccent, theme.palette.primaryAccent],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
@@ -147,7 +147,13 @@ struct LoginView: View {
             .overlay(
                 Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
             )
-            .shadow(color: Color(red: 0.9, green: 0.15, blue: 0.2).opacity(0.35), radius: 22, y: 10)
+            .shadow(
+                color: theme.cardStyle == .glass
+                    ? theme.palette.primaryAccent.opacity(0.35)
+                    : .clear,
+                radius: 22,
+                y: 10
+            )
         }
         .buttonStyle(PressableStyle())
         .disabled(auth.isAuthenticating)
