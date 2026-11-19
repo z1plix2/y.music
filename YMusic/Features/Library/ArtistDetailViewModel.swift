@@ -55,6 +55,9 @@ final class ArtistDetailViewModel: ObservableObject {
         // ручка — экран всё равно покажет шапку, треки и альбомы.
         let provider = catalog
         let similarTask = Task { try await provider.similarArtists(id: artistID) }
+        // Если основной запрос не удался или отменён, побочную задачу гасим,
+        // иначе она продолжит жить после ухода с экрана.
+        defer { similarTask.cancel() }
 
         do {
             let artist = try await catalog.artistDetail(id: artistID)

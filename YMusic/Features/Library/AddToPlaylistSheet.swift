@@ -222,14 +222,15 @@ struct AddToPlaylistSheet: View {
         isCreating = true
         do {
             let playlist = try await editor.createPlaylist(userID: userID, title: trimmed)
-            if let revision = playlist.revision {
-                try await editor.addToPlaylist(
-                    userID: userID,
-                    kind: playlist.kind,
-                    tracks: [track],
-                    revision: revision
-                )
-            }
+            // Ответ на создание не всегда содержит `revision`: перезапрашиваем
+            // плейлист, иначе трек молча не добавится.
+            let revision = try await revision(for: playlist.kind)
+            try await editor.addToPlaylist(
+                userID: userID,
+                kind: playlist.kind,
+                tracks: [track],
+                revision: revision
+            )
             Haptics.success()
             dismiss()
         } catch let error as APIError {
