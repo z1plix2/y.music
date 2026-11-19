@@ -21,4 +21,16 @@ protocol AudioStreamProviding: Sendable {
     /// Разрешает трек в URL, который умеет играть `AVPlayer`.
     /// Бросает `APIError.unavailable`, если играть нечего.
     func stream(for track: Track, maxBitrate: Int) async throws -> AudioStream
+
+    /// Заранее прогревает URL в кэше: ручное переключение не ждёт
+    /// два сетевых запроса. По умолчанию — ничего.
+    func prefetch(for track: Track, maxBitrate: Int) async
+
+    /// Есть ли уже готовый URL в кэше (без сетевого запроса).
+    func hasCachedStream(for track: Track, maxBitrate: Int) async -> Bool
+}
+
+extension AudioStreamProviding {
+    func prefetch(for track: Track, maxBitrate: Int) async {}
+    func hasCachedStream(for track: Track, maxBitrate: Int) async -> Bool { false }
 }

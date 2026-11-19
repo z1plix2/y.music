@@ -870,8 +870,13 @@ private struct MainRecentsSection: View {
                 }
             }
         }
-        .onAppear { recents = player.recents }
-        .onReceive(player.$recents) { recents = $0 }
+        .onAppear {
+            recents = player.recents
+            player.warmUpRecents(tracks)
+        }
+        .onReceive(player.$recents) { recents = $0
+            player.warmUpRecents(tracks)
+        }
     }
 
     /// Последние треки из `PlaybackStateStore` (заполняется в `AudioPlayer`
