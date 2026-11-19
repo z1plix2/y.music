@@ -893,8 +893,9 @@ final class AudioPlayer: ObservableObject {
         if pendingSeek == nil { persist() }
         syncNowPlaying()
 
-        let wasCached = (prefetchedTrackID == track.id && prefetchedURL != nil)
-            || (await streamProvider.hasCachedStream(for: track, maxBitrate: maxBitrate))
+        let hasPrefetchedURL = prefetchedTrackID == track.id && prefetchedURL != nil
+        let hasCachedURL = await streamProvider.hasCachedStream(for: track, maxBitrate: maxBitrate)
+        let wasCached = hasPrefetchedURL || hasCachedURL
 
         do {
             let streamURL: URL
