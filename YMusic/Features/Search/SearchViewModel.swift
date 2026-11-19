@@ -16,13 +16,48 @@ final class SearchViewModel: ObservableObject {
         case failed(APIError)
     }
 
+    /// Быстрый фильтр результата. `apiType` — значение параметра `type`
+    /// для ручки `/search`; новых эндпоинтов не заводим.
+    enum Filter: String, CaseIterable, Identifiable {
+        case all
+        case track
+        case artist
+        case album
+        case playlist
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .all: return "Всё"
+            case .track: return "Треки"
+            case .artist: return "Артисты"
+            case .album: return "Альбомы"
+            case .playlist: return "Плейлисты"
+            }
+        }
+
+        var apiType: String {
+            switch self {
+            case .all: return "all"
+            case .track: return "track"
+            case .artist: return "artist"
+            case .album: return "album"
+            case .playlist: return "playlist"
+            }
+        }
+    }
+
     /// Пауза между последним нажатием клавиши и запросом.
     private static let debounceNanoseconds: UInt64 = 300_000_000
     private static let pageSize = 20
 
     @Published var query: String = ""
+    @Published var filter: Filter = .all
     @Published private(set) var state: State = .idle
     @Published private(set) var history: [String] = []
+    /// Подсказки во время ввода: совпадения из истории и недавно сыгранного.
+    @Published private(set) var suggestions: [String] = []
     /// Догрузка следующей страницы треков («Показать ещё»).
     @Published private(set) var isLoadingMore = false
     /// Сервер вернул полную страницу — возможно, есть следующая.
@@ -64,7 +99,55 @@ final class SearchViewModel: ObservableObject {
 
     /// Вызывается на каждое изменение `query` из `.onChange`.
     func queryChanged() {
+        updateSuggestions()
         scheduleSearch()
+    }
+
+    /// Смена быстрого фильтра: если запрос уже есть — ищем заново, иначе
+    /// достаточно обновить подсветку чипа.
+    func selectFilter(_ newFilter: Filter) {
+        guard filter != newFilter else { return }
+        filter = newFilter
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        cancelPending()
+        startSearch(trimmed)
+    }
+
+    /// Локальные подсказки: история + недавно сыгранные треки и артисты,
+    /// начинающиеся с введённого текста. Сети здесь нет — дешёво на каждый
+    /// символ. При пустом запросе подсказки не показываем.
+    private func updateSuggestions() {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            suggestions = []
+            return
+        }
+
+        var seen = Set<String>()
+        var result: [String] = []
+
+        func append(_ candidate: String) {
+            let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard value.count >= 2 else { return }
+            guard value.range(of: trimmed, options: .caseInsensitive) != nil else { return }
+            guard value.caseInsensitiveCompare(trimmed) != .orderedSame else { return }
+            guard seen.insert(value.lowercased()).inserted else { return }
+            result.append(value)
+        }
+
+        history.forEach(append)
+        for entry in PlayHistoryStore.shared.entries {
+            append(entry.track.title)
+            append(entry.track.artist)
+        }
+
+        suggestions = Array(result.prefix(6))
+    }
+
+    /// Тап по подсказке: подставляем текст и ищем сразу.
+    func applySuggestion(_ text: String) {
+        submit(text)
     }
 
     /// Тап по истории или возврат на клавиатуре. Обычно запрос запускает
@@ -82,6 +165,7 @@ final class SearchViewModel: ObservableObject {
         cancelPending()
         query = ""
         state = .idle
+        suggestions = []
         page = 0
         hasMoreTracks = false
         isLoadingMore = false
@@ -136,6 +220,7 @@ final class SearchViewModel: ObservableObject {
             do {
                 let result = try await self.provider.search(
                     query: text,
+                    type: self.filter.apiType,
                     page: 0,
                     limit: Self.pageSize
                 )
@@ -180,6 +265,7 @@ final class SearchViewModel: ObservableObject {
             do {
                 let next = try await self.provider.search(
                     query: text,
+                    type: self.filter.apiType,
                     page: nextPage,
                     limit: Self.pageSize
                 )

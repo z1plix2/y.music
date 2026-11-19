@@ -5,5 +5,6 @@ import Foundation
 protocol SearchProviding: Sendable {
     /// `page` считается с нуля, как у Яндекс.API. `limit` — пожелание UI;
     /// сервер отдаёт свой размер страницы, поэтому на него не полагаемся.
-    func search(query: String, page: Int, limit: Int) async throws -> SearchResult
+    /// `type` — быстрый фильтр (`all`, `track`, `artist`, `album`, `playlist`).
+    func search(query: String, type: String, page: Int, limit: Int) async throws -> SearchResult
 }
