@@ -65,8 +65,8 @@ struct AddToPlaylistSheet: View {
             GlassButton(
                 "Новый плейлист",
                 systemImage: "plus",
-                fullWidth: true,
-                isEnabled: !isCreating
+                isEnabled: !isCreating,
+                fullWidth: true
             ) {
                 Haptics.selection()
                 isCreatePresented = true
