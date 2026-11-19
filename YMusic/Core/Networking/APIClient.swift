@@ -13,6 +13,13 @@ actor APIClient {
     private let tokens: TokenStore
     private let decoder: JSONDecoder
 
+    /// Повторяем только идемпотентные GET: POST-лайк или добавление в
+    /// плейлист при повторе могли бы примениться дважды.
+    private static let maxAttempts = 3
+    private static let baseBackoff: UInt64 = 350_000_000
+    /// Временные ответы сервера: их имеет смысл повторить с паузой.
+    private static let retryableStatuses: Set<Int> = [429, 500, 502, 503, 504]
+
     init(
         baseURL: URL = URL(string: "https://api.music.yandex.net")!,
         tokens: TokenStore,
@@ -58,10 +65,28 @@ actor APIClient {
             token = await tokens.currentToken()
         }
         var didRefresh = false
+        var attempt = 0
 
         while true {
             let request = try endpoint.makeRequest(baseURL: baseURL, token: token)
-            let (data, response) = try await dataTask(for: request)
+
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await dataTask(for: request)
+            } catch APIError.cancelled {
+                throw APIError.cancelled
+            } catch APIError.transport(let urlError) {
+                // Обрыв связи лечится повтором; GET безопасен, остальное — нет.
+                if endpoint.method == .get, attempt < Self.maxAttempts - 1 {
+                    attempt += 1
+                    try await backoff(after: attempt)
+                    continue
+                }
+                throw APIError.transport(urlError)
+            } catch {
+                throw error
+            }
 
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.http(status: -1, payload: nil)
@@ -76,12 +101,24 @@ actor APIClient {
                 token = try await tokens.refresh()
 
             default:
-                throw APIError.http(
-                    status: http.statusCode,
-                    payload: try? decoder.decode(APIErrorPayload.self, from: data)
-                )
+                let payload = try? decoder.decode(APIErrorPayload.self, from: data)
+                if endpoint.method == .get,
+                   Self.retryableStatuses.contains(http.statusCode),
+                   attempt < Self.maxAttempts - 1 {
+                    attempt += 1
+                    try await backoff(after: attempt)
+                    continue
+                }
+                throw APIError.http(status: http.statusCode, payload: payload)
             }
         }
+    }
+
+    /// Экспоненциальная пауза: 350 мс, 700 мс, … Лечит кратковременные
+    /// сетевые сбои и не даёт «задудосить» сервер при массовых ошибках.
+    private func backoff(after attempt: Int) async throws {
+        let delay = Self.baseBackoff * UInt64(1 << (attempt - 1))
+        try await Task.sleep(nanoseconds: delay)
     }
 
     private func dataTask(for request: URLRequest) async throws -> (Data, URLResponse) {

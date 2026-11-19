@@ -22,6 +22,7 @@ struct MainView: View {
     @StateObject private var catalog: CatalogViewModel
     @StateObject private var likes: LikeStore
     @StateObject private var wave: WaveViewModel
+    @StateObject private var network: NetworkMonitor
     @State private var route: MainRoute?
     /// Отложенный переход NowPlaying → артист: сначала закрываем плеер,
     /// потом открываем артиста. Храним задачу, чтобы отменить её при уходе.
@@ -38,6 +39,7 @@ struct MainView: View {
         _catalog = StateObject(wrappedValue: CatalogViewModel(userID: account.uid))
         _likes = StateObject(wrappedValue: LikeStore(userID: account.uid))
         _wave = StateObject(wrappedValue: WaveViewModel())
+        _network = StateObject(wrappedValue: NetworkMonitor.shared)
     }
 
     var body: some View {
@@ -107,6 +109,26 @@ struct MainView: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .top) {
+            if !network.isOnline {
+                Label("Нет интернета", systemImage: "wifi.slash")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background {
+                        Capsule().fill(Color.orange.opacity(0.9))
+                    }
+                    .overlay {
+                        Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                    }
+                    .padding(.top, toast == nil ? 54 : 96)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: network.isOnline)
+        .animation(.easeInOut(duration: 0.25), value: toast)
         .task {
             // `configure` идемпотентен: повторный вход на экран не перетрёт
             // текущую очередь восстановленным состоянием.
