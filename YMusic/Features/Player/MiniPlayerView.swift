@@ -45,6 +45,19 @@ struct MiniPlayerView: View {
 
             Button {
                 Haptics.light()
+                player.next()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tone.primary)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(PressableStyle(scale: 0.9))
+            .accessibilityLabel("Следующий трек")
+
+            Button {
+                Haptics.light()
                 player.togglePlayPause()
             } label: {
                 Image(systemName: playSymbol)

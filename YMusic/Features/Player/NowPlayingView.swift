@@ -569,16 +569,23 @@ struct NowPlayingView: View {
         .accessibilityLabel("AirPlay")
     }
 
-    /// Свайп вниз по экрану закрывает плеер. Порог и проверка вертикали
-    /// не дают сработать на горизонтальном свайпе обложки.
+    /// Свайп вниз по экрану закрывает плеер, вверх — открывает очередь.
+    /// Порог и проверка вертикали не дают сработать на горизонтальном
+    /// свайпе обложки, а для очереди ещё нужен быстрый «флик» вверх, чтобы
+    /// не мешать обычной прокрутке содержимого.
     private var dismissGesture: some Gesture {
         DragGesture(minimumDistance: 30)
             .onEnded { value in
-                guard value.translation.height > 100,
-                      abs(value.translation.height) > abs(value.translation.width)
-                else { return }
-                Haptics.light()
-                dismiss()
+                let dy = value.translation.height
+                guard abs(dy) > abs(value.translation.width) else { return }
+
+                if dy > 100 {
+                    Haptics.light()
+                    dismiss()
+                } else if dy < -120, value.predictedEndTranslation.height < -220 {
+                    Haptics.selection()
+                    isQueuePresented = true
+                }
             }
     }
 
