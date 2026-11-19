@@ -25,6 +25,11 @@ struct LikedTracksView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 24) {
+                        if case .loaded(let tracks) = viewModel.state, !tracks.isEmpty {
+                            actionsRow(tracks)
+                                .transition(.opacity)
+                        }
+
                         Group {
                             switch viewModel.state {
                             case .idle, .loading:
@@ -67,6 +72,32 @@ struct LikedTracksView: View {
     }
 
     // MARK: - Список
+
+    /// Верхние действия: запустить весь список или его перемешанную копию.
+    /// `play(tracks:startAt:)` сам пересобирает очередь, поэтому после нажатия
+    /// «Дальше» пойдут именно эти треки.
+    private func actionsRow(_ tracks: [Track]) -> some View {
+        HStack(spacing: 12) {
+            GlassButton(
+                "Играть всё",
+                systemImage: "play.fill",
+                prominence: .prominent,
+                fullWidth: true
+            ) {
+                Haptics.light()
+                player.play(tracks: tracks, startAt: 0)
+            }
+
+            GlassButton(
+                "Перемешать",
+                systemImage: "shuffle",
+                fullWidth: true
+            ) {
+                Haptics.selection()
+                player.play(tracks: tracks.shuffled(), startAt: 0)
+            }
+        }
+    }
 
     private func list(_ tracks: [Track]) -> some View {
         GlassCard(cornerRadius: 24, padding: 8) {

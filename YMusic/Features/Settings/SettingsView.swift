@@ -18,6 +18,8 @@ struct SettingsView: View {
 
     @State private var showSignOutConfirm = false
     @State private var infoSheet: SettingsInfoSheet?
+    @State private var cacheBytes: Int?
+    @State private var isClearingCache = false
 
     /// Настройка живёт в `UserDefaults`, а не в `AppSettingsStore`: её читает
     /// `AudioPlayer` на старте трека, синхронизация через published-объект
@@ -40,6 +42,7 @@ struct SettingsView: View {
                 appearanceSection
                 playbackSection
                 performanceSection
+                storageSection
                 waveSection
                 notificationsSection
                 aboutSection
@@ -64,6 +67,7 @@ struct SettingsView: View {
             .padding(.bottom, 48)
         }
         .background(settingsBackground)
+        .task { await refreshCacheSize() }
         .confirmationDialog(
             "Выйти из аккаунта?",
             isPresented: $showSignOutConfirm,
@@ -363,6 +367,89 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Хранилище
+
+    /// Кэш обложек — единственное, что приложение копит на диске. Здесь его
+    /// видно и можно сбросить, не переустанавливая приложение.
+    private var storageSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GlassSectionHeader(
+                "Хранилище",
+                subtitle: "Обложки кэшируются, чтобы не тратить трафик"
+            )
+
+            GlassCard(cornerRadius: 22, padding: 16) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        rowTitle("Кэш обложек", subtitle: "До 120 МБ, старые удаляются сами")
+
+                        Spacer(minLength: 8)
+
+                        Text(cacheSizeText)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(tone.secondary)
+                            .monospacedDigit()
+                    }
+
+                    Divider().overlay(tone.border.opacity(0.12))
+
+                    Button {
+                        Haptics.selection()
+                        clearCoverCache()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(width: 22)
+
+                            Text(isClearingCache ? "Очищаем..." : "Очистить кэш обложек")
+                                .font(.system(size: 15, weight: .medium))
+
+                            Spacer(minLength: 0)
+
+                            if isClearingCache {
+                                ProgressView().tint(tone.secondary)
+                            }
+                        }
+                        .foregroundStyle(tone.primary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.99))
+                    .disabled(isClearingCache || (cacheBytes ?? 0) == 0)
+                    .opacity((cacheBytes ?? 0) == 0 && !isClearingCache ? 0.5 : 1)
+                }
+            }
+        }
+    }
+
+    private var cacheSizeText: String {
+        guard let cacheBytes else { return "—" }
+        if cacheBytes == 0 { return "Пусто" }
+
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useKB, .useMB]
+        return formatter.string(fromByteCount: Int64(cacheBytes))
+    }
+
+    private func refreshCacheSize() async {
+        cacheBytes = await ImageDiskCache.shared.totalBytes()
+    }
+
+    private func clearCoverCache() {
+        guard !isClearingCache else { return }
+        isClearingCache = true
+
+        Task {
+            ImageLoader.shared.clearMemory()
+            await ImageDiskCache.shared.clear()
+            await ColorExtractor.shared.clearCache()
+            await refreshCacheSize()
+            isClearingCache = false
+            Haptics.success()
         }
     }
 

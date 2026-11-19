@@ -60,6 +60,24 @@ actor ImageDiskCache {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
+    /// Суммарный размер файлов кэша в байтах. Нужен экрану настроек,
+    /// чтобы показать, сколько занимают обложки, и не врать при очистке.
+    func totalBytes() -> Int {
+        let keys: [URLResourceKey] = [.fileSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        return files.reduce(0) { sum, file in
+            let values = try? file.resourceValues(forKeys: Set(keys))
+            return sum + (values?.fileSize ?? 0)
+        }
+    }
+
     // MARK: - Внутреннее
 
     private func fileURL(for key: String) -> URL {

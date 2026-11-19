@@ -42,6 +42,12 @@ final class ImageLoader {
         cache.object(forKey: cacheKey(for: url))
     }
 
+    /// Сброс только памяти. Диск чистит `ImageDiskCache`: так очистка кэша
+    /// в настройках не заставляет заново качать то, что ещё лежит на диске.
+    func clearMemory() {
+        cache.removeAllObjects()
+    }
+
     /// Загрузка в задаче вызывающего: уход с экрана отменяет `URLSession`
     /// через отмену `Task` в `.task(id:)`, отдельный «висящий» таск не нужен.
     func image(for url: URL) async -> UIImage? {

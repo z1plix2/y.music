@@ -69,6 +69,20 @@ final class PlayHistoryStore: ObservableObject {
 
     // MARK: - Чтение
 
+    /// Полностью очищает историю текущего профиля. Удаление из `UserDefaults`
+    /// идёт в той же последовательной очереди, что и записи: иначе уже
+    /// поставленная в очередь запись вернула бы старые данные.
+    func clear() {
+        entries = []
+
+        guard let userID else { return }
+        let defaults = self.defaults
+        let key = Self.key(userID)
+        persistQueue.async {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     func lastPlayedAt(for trackID: Int) -> Date? {
         entries.first { $0.id == trackID }?.lastPlayedAt
     }

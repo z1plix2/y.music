@@ -38,6 +38,7 @@ struct HistoryView: View {
     @State private var isLoading = false
     @State private var error: APIError?
     @State private var loadedFilters: Set<HistoryFilter> = []
+    @State private var showClearConfirmation = false
 
     private static let forgottenAfterDays = 30
     private static let topLimit = 20
@@ -56,6 +57,10 @@ struct HistoryView: View {
                 header
                 filterPicker
 
+                if filter == .all, !history.entries.isEmpty {
+                    historyActions
+                }
+
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 20) {
                         content
@@ -67,6 +72,20 @@ struct HistoryView: View {
             }
         }
         .task(id: filter) { await loadIfNeeded(filter) }
+        .confirmationDialog(
+            "Очистить историю?",
+            isPresented: $showClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Очистить", role: .destructive) {
+                Haptics.light()
+                history.clear()
+            }
+
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Списки «Все» и «Забытое» опустеют. Лайки и статистика останутся.")
+        }
         .onAppear {
             // «Забытое» существует только при достаточном числе лайков:
             // иначе список пуст и фильтр только путает.
@@ -115,6 +134,35 @@ struct HistoryView: View {
         .onChange(of: filter) { _ in
             Haptics.selection()
         }
+    }
+
+    /// Действия над всей историей: запустить перемешанную копию или очистить.
+    /// Видны только на фильтре «Все» — «Топ» и «Забытое» собираются иначе.
+    private var historyActions: some View {
+        HStack(spacing: 16) {
+            Button {
+                Haptics.selection()
+                let tracks = history.entries.map { $0.track.track }
+                player.play(tracks: tracks.shuffled(), startAt: 0)
+            } label: {
+                Label("Перемешать", systemImage: "shuffle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tone.primary)
+            }
+
+            Button {
+                Haptics.selection()
+                showClearConfirmation = true
+            } label: {
+                Label("Очистить", systemImage: "trash")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.red.opacity(0.9))
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 4)
     }
 
     private var availableFilters: [HistoryFilter] {
