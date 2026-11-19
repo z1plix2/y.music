@@ -24,6 +24,15 @@ struct TrackRowView: View {
     /// истории id артиста равен 0, ручки для него нет.
     var onOpenArtist: (() -> Void)? = nil
 
+    /// Правка плейлиста из его экрана: удаление и перестановка. Не заданы —
+    /// пункты в меню скрыты (трек вне редактируемого плейлиста).
+    var onRemoveFromPlaylist: (() -> Void)? = nil
+    var onMoveUp: (() -> Void)? = nil
+    var onMoveDown: (() -> Void)? = nil
+
+    @EnvironmentObject private var likes: LikeStore
+    @State private var isAddToPlaylistPresented = false
+
     var body: some View {
         HStack(spacing: 12) {
             Button {
@@ -68,8 +77,15 @@ struct TrackRowView: View {
                 track: track,
                 isPreparingShare: isPreparingShare,
                 onOpenArtist: onOpenArtist,
-                onShare: prepareShare
+                onShare: prepareShare,
+                onAddToPlaylist: { isAddToPlaylistPresented = true },
+                onRemoveFromPlaylist: onRemoveFromPlaylist,
+                onMoveUp: onMoveUp,
+                onMoveDown: onMoveDown
             )
+        }
+        .sheet(isPresented: $isAddToPlaylistPresented) {
+            AddToPlaylistSheet(userID: likes.userID, track: track)
         }
         .sheet(item: $sharePayload) { payload in
             ActivityView(items: payload.items)
@@ -122,6 +138,10 @@ private struct RowContextMenu: View {
     let isPreparingShare: Bool
     var onOpenArtist: (() -> Void)?
     var onShare: () -> Void
+    var onAddToPlaylist: (() -> Void)?
+    var onRemoveFromPlaylist: (() -> Void)?
+    var onMoveUp: (() -> Void)?
+    var onMoveDown: (() -> Void)?
 
     @EnvironmentObject private var player: AudioPlayer
 
@@ -140,6 +160,15 @@ private struct RowContextMenu: View {
             Label("В очередь", systemImage: "text.badge.plus")
         }
 
+        if let onAddToPlaylist {
+            Button {
+                Haptics.selection()
+                onAddToPlaylist()
+            } label: {
+                Label("В плейлист…", systemImage: "music.note.list")
+            }
+        }
+
         Divider()
 
         if let onOpenArtist {
@@ -152,6 +181,33 @@ private struct RowContextMenu: View {
         }
 
         TrackLikeMenuButton(track: track)
+
+        if let onMoveUp, let onMoveDown {
+            Divider()
+
+            Button {
+                Haptics.selection()
+                onMoveUp()
+            } label: {
+                Label("Выше", systemImage: "arrow.up")
+            }
+
+            Button {
+                Haptics.selection()
+                onMoveDown()
+            } label: {
+                Label("Ниже", systemImage: "arrow.down")
+            }
+        }
+
+        if let onRemoveFromPlaylist {
+            Button(role: .destructive) {
+                Haptics.selection()
+                onRemoveFromPlaylist()
+            } label: {
+                Label("Удалить из плейлиста", systemImage: "trash")
+            }
+        }
 
         Button {
             onShare()

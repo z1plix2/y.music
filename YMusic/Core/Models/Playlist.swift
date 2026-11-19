@@ -9,6 +9,9 @@ struct Playlist: Codable, Identifiable, Equatable, Sendable {
     let cover: Cover?
     let owner: Owner?
     let visibility: String?
+    /// Версия плейлиста для изменяющих запросов. Сервер требует её в
+    /// add/delete/move, чтобы не перезаписать параллельные правки.
+    let revision: Int?
 
     struct Cover: Codable, Equatable, Sendable {
         let uri: String?
@@ -52,7 +55,7 @@ struct Playlist: Codable, Identifiable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case uid, kind, title, description, trackCount, cover, owner, visibility
+        case uid, kind, title, description, trackCount, cover, owner, visibility, revision
     }
 
     init(from decoder: Decoder) throws {
@@ -65,5 +68,6 @@ struct Playlist: Codable, Identifiable, Equatable, Sendable {
         cover = try container.decodeIfPresent(Cover.self, forKey: .cover)
         owner = try container.decodeIfPresent(Owner.self, forKey: .owner)
         visibility = try container.decodeIfPresent(String.self, forKey: .visibility)
+        revision = container.decodeFlexibleIntIfPresent(forKey: .revision)
     }
 }

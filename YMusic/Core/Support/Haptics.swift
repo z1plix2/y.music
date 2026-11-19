@@ -19,6 +19,12 @@ enum Haptics {
         return generator
     }()
 
+    private static let notificationGenerator: UINotificationFeedbackGenerator = {
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        return generator
+    }()
+
     /// Play/pause, next/previous, тап по треку.
     static func light() {
         lightGenerator.impactOccurred(intensity: 0.7)
@@ -29,5 +35,11 @@ enum Haptics {
     static func selection() {
         selectionGenerator.selectionChanged()
         selectionGenerator.prepare()
+    }
+
+    /// Успешное действие: добавление в плейлист и подобное.
+    static func success() {
+        notificationGenerator.notificationOccurred(.success)
+        notificationGenerator.prepare()
     }
 }
