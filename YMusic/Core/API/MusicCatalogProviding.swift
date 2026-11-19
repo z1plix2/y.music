@@ -44,6 +44,8 @@ struct LikedPage: Equatable, Sendable {
 struct PlaylistTracks: Equatable, Sendable {
     let tracks: [Track]
     let total: Int
+    /// Версия плейлиста для изменяющих запросов (`nil`, если сервер её не отдал).
+    var revision: Int?
 
     var isTruncated: Bool { total > tracks.count }
 }

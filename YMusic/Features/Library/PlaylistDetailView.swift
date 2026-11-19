@@ -13,6 +13,9 @@ struct PlaylistDetailView: View {
     /// открыть откуда угодно, а навигацию решает вызывающий.
     var onOpenArtist: (Int) -> Void = { _ in }
 
+    @State private var isRenamePresented = false
+    @State private var renameDraft = ""
+
     init(
         playlist: Playlist,
         userID: Int,
@@ -64,16 +67,59 @@ struct PlaylistDetailView: View {
             }
         }
         .task { await viewModel.loadIfNeeded() }
+        .alert("Название плейлиста", isPresented: $isRenamePresented) {
+            TextField("Название", text: $renameDraft)
+            Button("Сохранить") {
+                let draft = renameDraft
+                Task { await viewModel.rename(to: draft) }
+            }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Как назвать плейлист?")
+        }
+        .alert(
+            "Не удалось изменить",
+            isPresented: Binding(
+                get: { viewModel.mutationError != nil },
+                set: { if !$0 { viewModel.mutationError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { viewModel.mutationError = nil }
+        } message: {
+            Text(viewModel.mutationError?.humanizedDescription(context: .playlist) ?? "")
+        }
     }
 
     // MARK: - Панель
 
     private var topBar: some View {
-        GlassScreenHeader(
-            title: "Плейлист",
-            subtitle: playlist.title,
-            onClose: { dismiss() }
-        )
+        VStack(alignment: .leading, spacing: 10) {
+            GlassScreenHeader(
+                title: "Плейлист",
+                subtitle: viewModel.title,
+                onClose: { dismiss() }
+            )
+
+            if viewModel.canEdit {
+                HStack(spacing: 16) {
+                    Button {
+                        Haptics.selection()
+                        renameDraft = viewModel.title
+                        isRenamePresented = true
+                    } label: {
+                        Label("Переименовать", systemImage: "pencil")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(tone.primary)
+                    }
+
+                    if viewModel.isMutating {
+                        ProgressView().tint(tone.tertiary)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+            }
+        }
         .padding(.horizontal, 20)
         .padding(.top, 14)
         .padding(.bottom, 4)
@@ -100,7 +146,7 @@ struct PlaylistDetailView: View {
             .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 10)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(playlist.title)
+                Text(viewModel.title)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundStyle(tone.primary)
                     .lineLimit(3)
@@ -204,13 +250,22 @@ struct PlaylistDetailView: View {
 
     private func row(_ track: Track, index: Int) -> some View {
         let isCurrent = player.currentTrack?.id == track.id
+        let canEdit = viewModel.canEdit
+        let lastIndex = viewModel.tracks.count - 1
 
         return TrackRowView(
             track: track,
             isCurrent: isCurrent,
             isPlaying: isCurrent && player.isPlaying,
             onTap: { play(from: index) },
-            onOpenArtist: artistAction
+            onOpenArtist: artistAction,
+            onRemoveFromPlaylist: canEdit ? { Task { await viewModel.remove(at: index) } } : nil,
+            onMoveUp: canEdit && index > 0
+                ? { Task { await viewModel.move(from: index, to: index - 1) } }
+                : nil,
+            onMoveDown: canEdit && index < lastIndex
+                ? { Task { await viewModel.move(from: index, to: index + 1) } }
+                : nil
         )
     }
 

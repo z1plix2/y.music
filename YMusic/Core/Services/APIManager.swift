@@ -96,7 +96,85 @@ final class APIManager: Sendable {
         // trackCount — поле плейлиста. Если его нет, считаем total равным
         // числу пришедших треков, чтобы не показывать ложную плашку.
         let total = max(playlist.trackCount ?? tracks.count, tracks.count)
-        return PlaylistTracks(tracks: tracks, total: total)
+        return PlaylistTracks(tracks: tracks, total: total, revision: playlist.revision)
+    }
+
+    // MARK: - Редактирование плейлистов
+
+    /// `/users/{uid}/playlists/create`. Возвращает созданный плейлист: из
+    /// него берём `kind` для перехода на экран.
+    func createPlaylist(userID: Int, title: String) async throws -> Playlist {
+        try await client.send(
+            Endpoint.form(
+                "users/\(userID)/playlists/create",
+                fields: ["title": title, "visibility": "private"]
+            ),
+            as: Playlist.self
+        )
+    }
+
+    func renamePlaylist(userID: Int, kind: Int, title: String) async throws {
+        try await client.sendIgnoringResponse(
+            Endpoint.form(
+                "users/\(userID)/playlists/\(kind)/name",
+                fields: ["value": title]
+            )
+        )
+    }
+
+    /// Треки передаются идентификаторами `trackId` или `trackId:albumId`,
+    /// как в лайках. `revision` обязателен — иначе сервер отвергнет запрос.
+    func addPlaylistTracks(
+        userID: Int,
+        kind: Int,
+        identifiers: [String],
+        revision: Int
+    ) async throws {
+        try await client.sendIgnoringResponse(
+            Endpoint.form(
+                "users/\(userID)/playlists/\(kind)/tracks/add",
+                fields: [
+                    "tracks": identifiers.joined(separator: ","),
+                    "revision": String(revision)
+                ]
+            )
+        )
+    }
+
+    func removePlaylistTracks(
+        userID: Int,
+        kind: Int,
+        identifiers: [String],
+        revision: Int
+    ) async throws {
+        try await client.sendIgnoringResponse(
+            Endpoint.form(
+                "users/\(userID)/playlists/\(kind)/tracks/delete",
+                fields: [
+                    "tracks": identifiers.joined(separator: ","),
+                    "revision": String(revision)
+                ]
+            )
+        )
+    }
+
+    func movePlaylistTrack(
+        userID: Int,
+        kind: Int,
+        from: Int,
+        to: Int,
+        revision: Int
+    ) async throws {
+        try await client.sendIgnoringResponse(
+            Endpoint.form(
+                "users/\(userID)/playlists/\(kind)/tracks/move",
+                fields: [
+                    "from": String(from),
+                    "to": String(to),
+                    "revision": String(revision)
+                ]
+            )
+        )
     }
 
     // MARK: - Артисты и альбомы
@@ -327,9 +405,10 @@ struct PlaylistWithTracks: Decodable {
     /// По этому полю понимаем, отдал ли сервер плейлист целиком.
     let trackCount: Int?
     let tracks: [Item]?
+    let revision: Int?
 
     enum CodingKeys: String, CodingKey {
-        case uid, kind, title, trackCount, tracks
+        case uid, kind, title, trackCount, tracks, revision
     }
 
     init(from decoder: Decoder) throws {
@@ -339,6 +418,7 @@ struct PlaylistWithTracks: Decodable {
         title = try container.decodeIfPresent(String.self, forKey: .title)
         trackCount = container.decodeFlexibleIntIfPresent(forKey: .trackCount)
         tracks = try container.decodeIfPresent([Item].self, forKey: .tracks)
+        revision = container.decodeFlexibleIntIfPresent(forKey: .revision)
     }
 }
 
