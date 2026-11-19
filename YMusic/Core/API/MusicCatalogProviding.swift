@@ -22,6 +22,9 @@ protocol MusicCatalogProviding: Sendable {
 
     /// Альбом с треками (`/albums/{id}/with-tracks`).
     func albumDetail(id: Int) async throws -> AlbumDetail
+
+    /// Похожие артисты (`/artists/{id}/similar`).
+    func similarArtists(id: Int) async throws -> [Artist]
 }
 
 /// Главная одним ответом. `likedConsumed` и `hasMoreLiked` считаются по списку

@@ -17,6 +17,9 @@ final class ArtistDetailViewModel: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
+    /// Похожие артисты. Отдельная секция, а не часть `ArtistDetail`:
+    /// `brief-info` их не отдаёт, и их отсутствие не должно ломать экран.
+    @Published private(set) var similarArtists: [Artist] = []
 
     let artistID: Int
 
@@ -48,6 +51,11 @@ final class ArtistDetailViewModel: ObservableObject {
     private func load() async {
         state = .loading
 
+        // Похожие грузим параллельно и не считаем их критичными: упала эта
+        // ручка — экран всё равно покажет шапку, треки и альбомы.
+        let provider = catalog
+        let similarTask = Task { try await provider.similarArtists(id: artistID) }
+
         do {
             let artist = try await catalog.artistDetail(id: artistID)
             guard !Task.isCancelled else { return }
@@ -63,5 +71,7 @@ final class ArtistDetailViewModel: ObservableObject {
             logger.error("Артист: \(error.localizedDescription, privacy: .public)")
             state = .failed(.unknown(error.localizedDescription))
         }
+
+        similarArtists = (try? await similarTask.value) ?? []
     }
 }

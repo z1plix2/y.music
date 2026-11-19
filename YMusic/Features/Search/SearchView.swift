@@ -8,6 +8,7 @@ struct SearchView: View {
 
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var likes: LikeStore
+    @EnvironmentObject private var waveSession: WaveSessionController
     @Environment(\.contentTone) private var tone
     @Environment(\.dismiss) private var dismiss
 
@@ -53,6 +54,7 @@ struct SearchView: View {
             destination(for: route)
                 .environmentObject(player)
                 .environmentObject(likes)
+                .environmentObject(waveSession)
         }
     }
 
