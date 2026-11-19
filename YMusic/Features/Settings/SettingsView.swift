@@ -443,7 +443,7 @@ struct SettingsView: View {
         guard !isClearingCache else { return }
         isClearingCache = true
 
-        Task {
+        Task { @MainActor in
             ImageLoader.shared.clearMemory()
             await ImageDiskCache.shared.clear()
             await ColorExtractor.shared.clearCache()
