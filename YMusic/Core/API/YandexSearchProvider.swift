@@ -16,7 +16,7 @@ actor YandexSearchProvider: SearchProviding {
         self.api = api
     }
 
-    func search(query: String, page: Int, limit: Int) async throws -> SearchResult {
-        try await api.search(text: query, type: "all", page: page)
+    func search(query: String, type: String, page: Int, limit: Int) async throws -> SearchResult {
+        try await api.search(text: query, type: type, page: page)
     }
 }

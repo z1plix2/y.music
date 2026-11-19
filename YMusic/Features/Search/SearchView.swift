@@ -28,6 +28,7 @@ struct SearchView: View {
             VStack(spacing: 0) {
                 topBar
                 searchBar
+                filterRow
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 24) {
@@ -138,12 +139,56 @@ struct SearchView: View {
 
     // MARK: - Контент
 
+    /// Быстрые фильтры: тот же `/search`, но с другим `type`. Отдельных
+    /// запросов и экранов не заводим.
+    private var filterRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(SearchViewModel.Filter.allCases) { item in
+                    let isSelected = viewModel.filter == item
+
+                    Button {
+                        Haptics.selection()
+                        viewModel.selectFilter(item)
+                    } label: {
+                        Text(item.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(isSelected ? tone.primary : tone.secondary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background {
+                                Capsule().fill(Color.white.opacity(isSelected ? 0.16 : 0.06))
+                            }
+                            .overlay {
+                                Capsule().strokeBorder(
+                                    isSelected
+                                        ? tone.primary.opacity(0.35)
+                                        : Color.white.opacity(0.08),
+                                    lineWidth: 1
+                                )
+                            }
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.95))
+                    .accessibilityLabel("Фильтр: \(item.title)")
+                    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 2)
+        }
+        .padding(.top, 10)
+    }
+
     @ViewBuilder
     private var content: some View {
         Group {
             if viewModel.isShowingHistory {
                 historySection
             } else {
+                if showsSuggestions {
+                    suggestionsSection
+                }
+
                 switch viewModel.state {
                 case .idle, .loading:
                     skeleton
@@ -161,6 +206,66 @@ struct SearchView: View {
             }
         }
         .transition(.opacity)
+    }
+
+    /// Подсказки показываем, пока результат ещё не пришёл: как только
+    /// появились настоящие результаты, подсказки только мешают.
+    private var showsSuggestions: Bool {
+        guard !viewModel.suggestions.isEmpty else { return false }
+        switch viewModel.state {
+        case .idle, .loading: return true
+        case .loaded, .failed: return false
+        }
+    }
+
+    private var suggestionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ПОДСКАЗКИ")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(tone.tertiary)
+
+            GlassCard(cornerRadius: 20, padding: 6) {
+                VStack(spacing: 0) {
+                    ForEach(Array(viewModel.suggestions.enumerated()), id: \.offset) { index, item in
+                        Button {
+                            Haptics.selection()
+                            isFieldFocused = false
+                            viewModel.applySuggestion(item)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(tone.tertiary)
+                                    .frame(width: 22)
+
+                                Text(item)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(tone.primary)
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 4)
+
+                                Image(systemName: "arrow.up.left")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(tone.tertiary)
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressableStyle(scale: 0.99))
+
+                        if index < viewModel.suggestions.count - 1 {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.07))
+                                .frame(height: 0.5)
+                                .padding(.leading, 42)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Стабильный ключ фазы: fade только при скелетон → результат/ошибка,
