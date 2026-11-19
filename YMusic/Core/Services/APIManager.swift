@@ -391,6 +391,33 @@ final class APIManager: Sendable {
         )
         return (liked.library?.tracks ?? []).map(\.id)
     }
+
+    /// `GET /artists/{id}/similar`. Сервер в разных версиях отдаёт либо
+    /// `{"artists": [...]}`, либо голый массив — принимаем оба.
+    func similarArtists(id: Int) async throws -> [Artist] {
+        try await client.send(
+            Endpoint(path: "artists/\(id)/similar"),
+            as: SimilarArtists.self
+        ).artists
+    }
+}
+
+/// Терпимый к форме ответ `GET /artists/{id}/similar`.
+struct SimilarArtists: Decodable {
+    let artists: [Artist]
+
+    enum CodingKeys: String, CodingKey {
+        case artists
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: CodingKeys.self),
+           let list = try? container.decode([Artist].self, forKey: .artists) {
+            artists = list
+            return
+        }
+        artists = (try? decoder.singleValueContainer().decode([Artist].self)) ?? []
+    }
 }
 
 /// Плейлист с вложенными треками (`/users/{uid}/playlists/{kind}`).

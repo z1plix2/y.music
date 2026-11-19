@@ -104,6 +104,10 @@ actor YandexMusicCatalog: MusicCatalogProviding {
         try await api.albumDetail(id: id)
     }
 
+    func similarArtists(id: Int) async throws -> [Artist] {
+        try await api.similarArtists(id: id)
+    }
+
     // MARK: - Внутреннее
 
     private func cachedLikedIDs(userID: Int) async throws -> [Int] {

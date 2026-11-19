@@ -9,9 +9,11 @@ import SwiftUI
 struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     @State private var openedAlbum: Album?
+    @State private var openedArtist: Artist?
 
     @EnvironmentObject private var player: AudioPlayer
     @EnvironmentObject private var likes: LikeStore
+    @EnvironmentObject private var waveSession: WaveSessionController
     @Environment(\.contentTone) private var tone
     @Environment(\.dismiss) private var dismiss
 
@@ -45,6 +47,12 @@ struct ArtistDetailView: View {
             AlbumDetailView(albumID: album.id)
                 .environmentObject(player)
                 .environmentObject(likes)
+        }
+        .sheet(item: $openedArtist) { artist in
+            ArtistDetailView(artistID: artist.id)
+                .environmentObject(player)
+                .environmentObject(likes)
+                .environmentObject(waveSession)
         }
     }
 
@@ -88,6 +96,10 @@ struct ArtistDetailView: View {
                 }
             }
 
+            if !viewModel.similarArtists.isEmpty {
+                similarSection
+            }
+
         case .failed(let error):
             ErrorStateCard(error: error, context: .artist) {
                 Task { await viewModel.retry() }
@@ -129,6 +141,16 @@ struct ArtistDetailView: View {
                 ) {
                     play(artist.popularTracks, from: 0)
                 }
+            }
+
+            GlassButton(
+                "Радио артиста",
+                systemImage: "dot.radiowaves.left.and.right",
+                fullWidth: true
+            ) {
+                Haptics.selection()
+                // Сид `artist:{id}` — ротор подбирает треки вокруг артиста.
+                waveSession.start(seeds: ["artist:\(viewModel.artistID)"])
             }
         }
     }
@@ -252,6 +274,52 @@ struct ArtistDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(tone.tertiary)
             }
+        }
+    }
+
+    // MARK: - Похожие артисты
+
+    private var similarSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GlassSectionHeader("Похожие артисты")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(viewModel.similarArtists) { artist in
+                        Button {
+                            Haptics.selection()
+                            openedArtist = artist
+                        } label: {
+                            similarArtistCard(artist)
+                        }
+                        .buttonStyle(PressableStyle(scale: 0.97))
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func similarArtistCard(_ artist: Artist) -> some View {
+        VStack(spacing: 8) {
+            CachedAsyncImage(url: artist.artworkURL) {
+                ZStack {
+                    Color.white.opacity(0.07)
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.25))
+                }
+            }
+            .frame(width: 96, height: 96)
+            .clipShape(Circle())
+            .overlay { Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1) }
+
+            Text(artist.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tone.primary)
+                .lineLimit(2)
+                .frame(width: 96, alignment: .center)
+                .frame(minHeight: 32, alignment: .top)
         }
     }
 
