@@ -25,13 +25,17 @@ final class ImageLoader {
     /// Ключ без query и fragment: Яндекс отдаёт одну и ту же обложку
     /// разными URL (`?size=200` / `?size=400`), а декодируем мы всё равно
     /// в один размер — держать копии в кэше незачем.
-    private func cacheKey(for url: URL) -> NSString {
+    private func normalizedKey(for url: URL) -> String {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return url.absoluteString as NSString
+            return url.absoluteString
         }
         components.query = nil
         components.fragment = nil
-        return (components.url?.absoluteString ?? url.absoluteString) as NSString
+        return components.url?.absoluteString ?? url.absoluteString
+    }
+
+    private func cacheKey(for url: URL) -> NSString {
+        normalizedKey(for: url) as NSString
     }
 
     func cachedImage(for url: URL) -> UIImage? {
@@ -45,13 +49,26 @@ final class ImageLoader {
             return cached
         }
 
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            try Task.checkCancellation()
+        let key = normalizedKey(for: url)
 
-            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                logger.debug("Обложка пропущена: HTTP \(http.statusCode)")
-                return nil
+        do {
+            let data: Data
+
+            // Диск идёт перед сетью: перезапуск не перекачивает обложки,
+            // а без интернета они вообще доступны.
+            if let diskData = await ImageDiskCache.shared.data(for: key) {
+                data = diskData
+            } else {
+                let (networkData, response) = try await URLSession.shared.data(from: url)
+                try Task.checkCancellation()
+
+                if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                    logger.debug("Обложка пропущена: HTTP \(http.statusCode)")
+                    return nil
+                }
+
+                data = networkData
+                await ImageDiskCache.shared.store(networkData, key: key)
             }
 
             // Декодирование и даунсемплинг — вне главного потока: для обложки

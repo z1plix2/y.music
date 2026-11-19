@@ -100,7 +100,9 @@ final class AudioPlayer: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
     private var routeObserver: NSObjectProtocol?
+    private var failedToEndObserver: NSObjectProtocol?
     private var itemObservations: [NSKeyValueObservation] = []
+    private var playerObservations: [NSKeyValueObservation] = []
     private var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
     private var pendingSeek: Double?
@@ -108,6 +110,10 @@ final class AudioPlayer: ObservableObject {
     private var tickCount = 0
     private var fadeTask: Task<Void, Never>?
     private var sleepTimerTask: Task<Void, Never>?
+    /// Восстановление оборванного потока: не даём зациклиться на одном треке.
+    private var resumeTrackID: Int?
+    private var resumeAttempts = 0
+    private var lastResumeAt: Date?
     /// Предыдущая позиция из тика: по разнице считаем реально прослушанное.
     private var lastObservedTime: Double = 0
 
@@ -791,8 +797,13 @@ final class AudioPlayer: ObservableObject {
             NotificationCenter.default.removeObserver(routeObserver)
             self.routeObserver = nil
         }
+        if let failedToEndObserver {
+            NotificationCenter.default.removeObserver(failedToEndObserver)
+            self.failedToEndObserver = nil
+        }
 
         invalidateItemObservations()
+        invalidatePlayerObservations()
         nowPlaying.teardown()
         stopBeatHaptics()
         waveformTask?.cancel()
@@ -1041,6 +1052,11 @@ final class AudioPlayer: ObservableObject {
         itemObservations.removeAll()
     }
 
+    private func invalidatePlayerObservations() {
+        playerObservations.forEach { $0.invalidate() }
+        playerObservations.removeAll()
+    }
+
     private func handleItemStatus(_ state: AVPlayerItem.Status, message: String?) {
         switch state {
         case .readyToPlay:
@@ -1224,6 +1240,27 @@ final class AudioPlayer: ObservableObject {
             Task { @MainActor in self?.updateTime(time) }
         }
 
+        // Слабая сеть: AVPlayer уходит в «ожидание данных». Показываем это
+        // как буферизацию, чтобы пользователь видел причину паузы.
+        playerObservations = [
+            player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+                let control = player.timeControlStatus
+                Task { @MainActor in
+                    guard let self else { return }
+                    switch control {
+                    case .waitingToPlayAtSpecifiedRate:
+                        if self.isPlaying { self.isBuffering = true }
+                    case .playing:
+                        if self.isBuffering { self.isBuffering = false }
+                    case .paused:
+                        break
+                    default:
+                        break
+                    }
+                }
+            }
+        ]
+
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: nil,
@@ -1252,6 +1289,43 @@ final class AudioPlayer: ObservableObject {
             let reasonRaw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             Task { @MainActor in self?.handleRouteChange(reasonRaw: reasonRaw) }
         }
+
+        // Оборванный поток (сеть пропала на середине) приходит именно этим
+        // уведомлением: `status` item при этом не всегда меняется.
+        failedToEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleFailedToPlayToEnd() }
+        }
+    }
+
+    /// Поток оборвался на середине. Пробуем перезапустить тот же трек с текущей
+    /// позиции — но не больше двух раз и не чаще раза в 5 секунд, чтобы при
+    /// реально пропавшей сети не крутить бесконечный цикл.
+    private func handleFailedToPlayToEnd() {
+        guard let track = queue.currentTrack else { return }
+
+        if resumeTrackID != track.id {
+            resumeTrackID = track.id
+            resumeAttempts = 0
+        }
+
+        let now = Date()
+        if let lastResumeAt, now.timeIntervalSince(lastResumeAt) < 5 { return }
+        guard resumeAttempts < 2 else {
+            logger.error("Поток оборвался: попытки восстановления исчерпаны")
+            return
+        }
+
+        resumeAttempts += 1
+        lastResumeAt = now
+
+        let position = currentTime
+        pendingSeek = position > 1 ? position : nil
+        logger.error("Поток оборвался — перезапуск «\(track.title, privacy: .public)» с \(Int(position)) с")
+        startPlayback()
     }
 
     private func handleInterruption(typeRaw: UInt?, optionsRaw: UInt?) {
