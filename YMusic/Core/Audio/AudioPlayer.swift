@@ -84,6 +84,8 @@ final class AudioPlayer: ObservableObject {
     private var prefetchedTrackID: Int?
     private var prefetchedURL: URL?
     private var prefetchTask: Task<Void, Never>?
+    /// Прогрев «Недавнего» на главной — не чаще раза в 2 минуты.
+    private var lastRecentsWarmUp = Date.distantPast
 
     /// Скорость воспроизведения: 0.5…2.0, тон сохраняет `.spectral`.
     @Published private(set) var playbackRate: Float = 1.0
@@ -407,41 +409,76 @@ final class AudioPlayer: ObservableObject {
 
     // MARK: - Gapless
 
-/// За 10 секунд до конца трека качаем адрес следующего: `handleTrackEnded`
-/// потом не ждёт сеть и трек начинается без паузы.
-private func prefetchUpcomingIfNeeded() {
-    guard prefetchedURL == nil, !isDJTransitionActive else { return }
-    guard duration > 15, currentTime > 0, currentTime >= duration - 10 else { return }
-    guard let next = queue.upNext.first?.track else { return }
-    guard next.id != prefetchedTrackID else { return }
+    /// Прогрев URL следующих треков. Низкий приоритет и последовательно:
+    /// не конкурируем с буфером текущего и не шлём пачку запросов сразу.
+    private func warmUpNextStreams() {
+        let upcoming = queue.upNext.prefix(2).map(\.track)
+        guard !upcoming.isEmpty else { return }
 
-    prefetchedTrackID = next.id
-    prefetchedURL = nil
-    prefetchTask?.cancel()
-
-    prefetchTask = Task { [weak self] in
-        guard let self else { return }
-        do {
-            let stream = try await self.streamProvider.stream(for: next, maxBitrate: self.maxBitrate)
-            guard !Task.isCancelled, self.prefetchedTrackID == next.id else { return }
-            self.prefetchedURL = stream.url
-        } catch {
-            // Не критично: конец трека уйдёт обычным медленным путём.
-            self.logger.debug("Prefetch: \(error.localizedDescription, privacy: .public)")
+        let provider = streamProvider
+        let bitrate = maxBitrate
+        Task.detached(priority: .utility) {
+            for track in upcoming {
+                await provider.prefetch(for: track, maxBitrate: bitrate)
+            }
         }
     }
-}
 
-/// Отдаёт адрес один раз: после сборки `AVPlayerItem` кэш не нужен.
-private func takePrefetchedURL(for trackID: Int) -> URL? {
-    guard prefetchedTrackID == trackID, let url = prefetchedURL else { return nil }
-    prefetchedTrackID = nil
-    prefetchedURL = nil
-    prefetchTask = nil
-    return url
-}
+    /// Прогрев карточек «Недавнее»: переход с главной не должен ждать
+    /// два сетевых запроса. Тронутые треки не трогаем, частоту ограничиваем.
+    func warmUpRecents(_ tracks: [Track]) {
+        let now = Date()
+        guard now.timeIntervalSince(lastRecentsWarmUp) > 120 else { return }
+        lastRecentsWarmUp = now
 
-// MARK: - Auto-DJ
+        let currentID = queue.currentTrack?.id
+        let upcoming = tracks.filter { $0.id != currentID }.prefix(5)
+        guard !upcoming.isEmpty else { return }
+
+        let provider = streamProvider
+        let bitrate = maxBitrate
+        Task.detached(priority: .utility) {
+            for track in upcoming {
+                await provider.prefetch(for: track, maxBitrate: bitrate)
+            }
+        }
+    }
+
+    /// За 10 секунд до конца трека качаем адрес следующего: `handleTrackEnded`
+    /// потом не ждёт сеть и трек начинается без паузы.
+    private func prefetchUpcomingIfNeeded() {
+        guard prefetchedURL == nil, !isDJTransitionActive else { return }
+        guard duration > 15, currentTime > 0, currentTime >= duration - 10 else { return }
+        guard let next = queue.upNext.first?.track else { return }
+        guard next.id != prefetchedTrackID else { return }
+
+        prefetchedTrackID = next.id
+        prefetchedURL = nil
+        prefetchTask?.cancel()
+
+        prefetchTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let stream = try await self.streamProvider.stream(for: next, maxBitrate: self.maxBitrate)
+                guard !Task.isCancelled, self.prefetchedTrackID == next.id else { return }
+                self.prefetchedURL = stream.url
+            } catch {
+                // Не критично: конец трека уйдёт обычным медленным путём.
+                self.logger.debug("Prefetch: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Отдаёт адрес один раз: после сборки `AVPlayerItem` кэш не нужен.
+    private func takePrefetchedURL(for trackID: Int) -> URL? {
+        guard prefetchedTrackID == trackID, let url = prefetchedURL else { return nil }
+        prefetchedTrackID = nil
+        prefetchedURL = nil
+        prefetchTask = nil
+        return url
+    }
+
+    // MARK: - Auto-DJ
 
     /// Плавный переход без второго плеера: за 4 секунды до конца
     /// ускоряемся на 8 % и уводим громкость в ноль, следующий трек
@@ -778,6 +815,9 @@ private func takePrefetchedURL(for trackID: Int) -> URL? {
         recents = []
         ListeningStatsStore.shared.detach()
         PlayHistoryStore.shared.detach()
+        Task {
+            await YandexAudioStreamProvider.shared.clearCache()
+        }
     }
 
     // MARK: - Восстановление
@@ -834,15 +874,27 @@ private func takePrefetchedURL(for trackID: Int) -> URL? {
         }
 
         invalidateItemObservations()
+        // Старый анализ качает целый трек: при переключении он должен
+        // умереть сразу, а не отбирать полосу у нового потока.
+        waveformTask?.cancel()
+        waveformTask = nil
         status = .preparing
         isBuffering = true
         currentTime = 0
         lastObservedTime = 0
         duration = track.duration
         notice = nil
-        await AnalysisFileStore.shared.clear()
+        // Удаление временных файлов анализа больше не блокирует сеть:
+        // оно идёт параллельно запросу за URL, но завершается до старта
+        // нового анализа.
+        let clearAnalysis = Task.detached(priority: .utility) {
+            await AnalysisFileStore.shared.clear()
+        }
         if pendingSeek == nil { persist() }
         syncNowPlaying()
+
+        let wasCached = (prefetchedTrackID == track.id && prefetchedURL != nil)
+            || (await streamProvider.hasCachedStream(for: track, maxBitrate: maxBitrate))
 
         do {
             let streamURL: URL
@@ -861,6 +913,9 @@ private func takePrefetchedURL(for trackID: Int) -> URL? {
 
             guard generation == loadGeneration, !Task.isCancelled else { return }
 
+            await clearAnalysis.value
+            guard generation == loadGeneration, !Task.isCancelled else { return }
+
             currentStreamURL = streamURL
             startAnalysis(for: track, url: streamURL)
 
@@ -877,7 +932,12 @@ private func takePrefetchedURL(for trackID: Int) -> URL? {
             observe(item)
 
             player.replaceCurrentItem(with: item)
-            player.play()
+            if wasCached {
+                // Горячий URL: не ждём эвристику буфера, стартуем сразу.
+                player.playImmediately(atRate: playbackRate)
+            } else {
+                player.play()
+            }
             status = .playing
 
             startBeatHaptics(for: streamURL)
@@ -911,6 +971,10 @@ private func takePrefetchedURL(for trackID: Int) -> URL? {
             updateWidgetSnapshot(reload: true)
             persist()
             syncNowPlaying()
+
+            // Следующий и после-следующий URL греем сразу: ручной «дальше»
+            // и быстрые двойные переключения не должны ждать сеть.
+            warmUpNextStreams()
         } catch is CancellationError {
             return
         } catch let error as APIError {
@@ -1295,6 +1359,11 @@ private func startBeatHaptics(for url: URL) {
 
         waveformTask = Task { [weak self] in
             do {
+                // Анализ качает весь трек. Пауза даёт AVPlayer забрать
+                // полосу на старте, иначе переключение заметно буксует.
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                guard !Task.isCancelled else { return }
+
                 let analysis = try await WaveformExtractor.shared.analysis(
                     for: track,
                     streamURL: url,

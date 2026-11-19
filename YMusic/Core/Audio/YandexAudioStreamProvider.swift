@@ -68,14 +68,73 @@ final class DownloadInfoXMLParser: NSObject, XMLParserDelegate {
 actor YandexAudioStreamProvider: AudioStreamProviding {
     static let shared = YandexAudioStreamProvider()
 
+    /// Подписанная ссылка живёт ограниченное время; 10 минут — с запасом.
+    private static let cacheLifetime: TimeInterval = 600
+    private static let cacheLimit = 80
+
+    private struct CacheEntry {
+        let stream: AudioStream
+        let expiresAt: Date
+    }
+
     private let api: APIManager
     private let logger = Logger(subsystem: "com.example.ymusic", category: "AudioStream")
+
+    /// Разрешённые URL: повторный переход на трек не ждёт сеть.
+    private var cache: [String: CacheEntry] = [:]
+    private var cacheOrder: [String] = []
+    /// Один запрос на трек, даже если prefetch и play стартовали вместе.
+    private var inFlight: [String: Task<AudioStream, Error>] = [:]
 
     init(api: APIManager = .shared) {
         self.api = api
     }
 
     func stream(for track: Track, maxBitrate: Int) async throws -> AudioStream {
+        let key = Self.key(trackID: track.id, bitrate: maxBitrate)
+
+        if let entry = cache[key], entry.expiresAt > Date() {
+            return entry.stream
+        }
+
+        if let running = inFlight[key] {
+            return try await running.value
+        }
+
+        let task = Task<AudioStream, Error> {
+            try await self.resolveStream(for: track, maxBitrate: maxBitrate)
+        }
+        inFlight[key] = task
+
+        do {
+            let stream = try await task.value
+            inFlight[key] = nil
+            store(stream, key: key)
+            return stream
+        } catch {
+            inFlight[key] = nil
+            throw error
+        }
+    }
+
+    func prefetch(for track: Track, maxBitrate: Int) async {
+        _ = try? await stream(for: track, maxBitrate: maxBitrate)
+    }
+
+    func clearCache() {
+        cache.removeAll()
+        cacheOrder.removeAll()
+    }
+
+    func hasCachedStream(for track: Track, maxBitrate: Int) async -> Bool {
+        let key = Self.key(trackID: track.id, bitrate: maxBitrate)
+        guard let entry = cache[key] else { return false }
+        return entry.expiresAt > Date()
+    }
+
+    // MARK: - Загрузка
+
+    private func resolveStream(for track: Track, maxBitrate: Int) async throws -> AudioStream {
         guard track.available else {
             throw APIError.unavailable("Трек недоступен в регионе или удалён из каталога.")
         }
@@ -164,5 +223,26 @@ actor YandexAudioStreamProvider: AudioStreamProviding {
         }
 
         return directURL
+    }
+
+    private func store(_ stream: AudioStream, key: String) {
+        cache[key] = CacheEntry(
+            stream: stream,
+            expiresAt: Date().addingTimeInterval(Self.cacheLifetime)
+        )
+        cacheOrder.removeAll { $0 == key }
+        cacheOrder.append(key)
+
+        if cacheOrder.count > Self.cacheLimit {
+            let evicted = cacheOrder.prefix(cacheOrder.count - Self.cacheLimit)
+            for stale in evicted {
+                cache[stale] = nil
+            }
+            cacheOrder.removeFirst(evicted.count)
+        }
+    }
+
+    private static func key(trackID: Int, bitrate: Int) -> String {
+        "\(trackID)-\(bitrate)"
     }
 }
